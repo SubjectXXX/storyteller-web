@@ -69,6 +69,11 @@ describe("player fixture journey", () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/play");
     render(<App />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "The receiver wakes" }),
+      ).toHaveFocus(),
+    );
     const draft = screen.getByLabelText("Do action");
     await user.clear(draft);
     await user.type(draft, "Keep this exact player draft.");
