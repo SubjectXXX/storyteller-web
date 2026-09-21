@@ -1,0 +1,47 @@
+/*
+ * Global app surface — layered on top of the design-system tokens +
+ * reset. Keep this file minimal; component-level CSS modules sit next
+ * to each component. Loading/error/typography are encoded here so
+ * every page inherits a consistent baseline.
+ */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+[data-loading-state="loading"] {
+  color: var(--color-foreground-muted);
+}
+
+[data-loading-state="error"] {
+  color: var(--color-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

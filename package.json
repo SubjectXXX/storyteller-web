@@ -1,0 +1,38 @@
+{
+  "name": "@storyteller/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Storyteller web (player) SPA — React 19 + TypeScript + Vite. Renamed from /player per ADR-0001.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "oxlint $(find src -type f \\( -name '*.ts' -o -name '*.tsx' \\) | tr '\\n' ' ')",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@storyteller/design-system": "file:../../packages/design-system",
+    "@tanstack/react-query": "^5.59.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.460.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router": "^7.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "happy-dom": "^15.11.0",
+    "oxlint": "^1.81.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^3.0.0"
+  }
+}
