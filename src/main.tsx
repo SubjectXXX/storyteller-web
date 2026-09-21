@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@storyteller/design-system/tokens.css';
+import '../../packages/design-system/src/player/player.css';
 import { App } from './App';
 import './styles.css';
 
