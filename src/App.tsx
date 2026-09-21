@@ -1,116 +1,1162 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ErrorShell, LoadingShell, NotFoundShell } from './shells';
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ErrorShell, LoadingShell, NotFoundShell } from "./shells";
 
-type Route = 'library' | 'setup' | 'play' | 'settings' | 'wallet';
-type AsyncState = 'ready' | 'loading' | 'empty' | 'error';
-type PlayState = 'ready' | 'streaming' | 'disconnect' | 'quota';
-type CheckoutState = 'quote' | 'handoff' | 'pending' | 'completed' | 'cancelled' | 'failed' | 'delayed' | 'refunded' | 'changed';
+type Route = "library" | "setup" | "play" | "settings" | "wallet";
+type AsyncState = "ready" | "loading" | "empty" | "error";
+type PlayState = "ready" | "streaming" | "disconnect" | "quota";
+type CheckoutState =
+  | "quote"
+  | "handoff"
+  | "pending"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "delayed"
+  | "refunded"
+  | "changed";
 
 const scenarios = [
-  { title: 'The Quiet Meridian', author: 'Mira Voss', genre: 'Mystery', synopsis: 'A weather station receives tomorrow’s final transmission.', labels: ['Tension', 'Isolation'], version: '2.4', resources: 'Map, radio, 12 credits', mechanics: 'Clues · trust · weather', state: 'Continue' },
-  { title: 'Gardens Above Glass', author: 'R. Enlai', genre: 'Hopeful', synopsis: 'Restore a floating conservatory before the equinox.', labels: ['Community', 'Nature'], version: '1.8', resources: 'Seeds, skiff, 9 credits', mechanics: 'Crafting · relationships', state: 'New story' },
-  { title: 'Signal at Copper Bay', author: 'Jules Ardent', genre: 'Adventure', synopsis: 'Chart a coast whose lighthouses have begun to answer back.', labels: ['Peril', 'Open water'], version: '3.1', resources: 'Compass, cutter, 15 credits', mechanics: 'Navigation · crew', state: 'New story' },
+  {
+    title: "The Quiet Meridian",
+    author: "Mira Voss",
+    genre: "Mystery",
+    synopsis: "A weather station receives tomorrow’s final transmission.",
+    labels: ["Tension", "Isolation"],
+    version: "2.4",
+    resources: "Map, radio, 12 credits",
+    mechanics: "Clues · trust · weather",
+    state: "Continue",
+  },
+  {
+    title: "Gardens Above Glass",
+    author: "R. Enlai",
+    genre: "Hopeful",
+    synopsis: "Restore a floating conservatory before the equinox.",
+    labels: ["Community", "Nature"],
+    version: "1.8",
+    resources: "Seeds, skiff, 9 credits",
+    mechanics: "Crafting · relationships",
+    state: "New story",
+  },
+  {
+    title: "Signal at Copper Bay",
+    author: "Jules Ardent",
+    genre: "Adventure",
+    synopsis: "Chart a coast whose lighthouses have begun to answer back.",
+    labels: ["Peril", "Open water"],
+    version: "3.1",
+    resources: "Compass, cutter, 15 credits",
+    mechanics: "Navigation · crew",
+    state: "New story",
+  },
 ];
 
-const creditPackages: ReadonlyArray<readonly [string, string, string, string]> = [
-  ['80', '80 credits', '€4.00', 'No bonus'],
-  ['240', '200 + 40 bonus', '€9.00', 'Most selected'],
-  ['700', '600 + 100 bonus', '€22.00', 'Best value'],
-];
+const creditPackages: ReadonlyArray<readonly [string, string, string, string]> =
+  [
+    ["80", "80 credits", "€4.00", "No bonus"],
+    ["240", "200 + 40 bonus", "€9.00", "Most selected"],
+    ["700", "600 + 100 bonus", "€22.00", "Best value"],
+  ];
 
 function routeFromPath(pathname: string): Route | null {
-  if (pathname === '/' || pathname === '/library') return 'library';
-  if (pathname === '/setup') return 'setup';
-  if (pathname === '/play') return 'play';
-  if (pathname === '/settings') return 'settings';
-  if (pathname === '/wallet') return 'wallet';
+  if (pathname === "/" || pathname === "/library") return "library";
+  if (pathname === "/setup") return "setup";
+  if (pathname === "/play") return "play";
+  if (pathname === "/settings") return "settings";
+  if (pathname === "/wallet") return "wallet";
   return null;
 }
 
 function useRoute() {
-  const [route, setRoute] = useState<Route | null>(() => routeFromPath(window.location.pathname));
+  const [route, setRoute] = useState<Route | null>(() =>
+    routeFromPath(window.location.pathname),
+  );
   useEffect(() => {
     const update = () => setRoute(routeFromPath(window.location.pathname));
-    window.addEventListener('popstate', update);
-    return () => window.removeEventListener('popstate', update);
+    window.addEventListener("popstate", update);
+    return () => window.removeEventListener("popstate", update);
   }, []);
+  useEffect(() => {
+    if (!route) return;
+    const frame = requestAnimationFrame(() => {
+      window.scrollTo(0, 0);
+      document.querySelector<HTMLElement>("[data-route-heading]")?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [route]);
   const navigate = (next: Route) => {
-    const path = next === 'library' ? '/' : `/${next}`;
-    window.history.pushState({}, '', path);
+    const path = next === "library" ? "/" : `/${next}`;
+    window.history.pushState({}, "", path);
     setRoute(next);
-    requestAnimationFrame(() => document.querySelector<HTMLElement>('#main-content')?.focus());
   };
   return [route, navigate] as const;
 }
 
-function Icon({ children }: { children: string }) { return <span aria-hidden="true" className="icon">{children}</span>; }
-
-function Status({ tone, title, children, role = 'status' }: { tone: 'success' | 'info' | 'warning' | 'danger'; title: string; children: React.ReactNode; role?: 'status' | 'alert' }) {
-  return <div className="status st-status" data-tone={tone} role={role}><div><strong>{title}</strong><div>{children}</div></div></div>;
+function Icon({ children }: { children: string }) {
+  return (
+    <span aria-hidden="true" className="icon">
+      {children}
+    </span>
+  );
 }
 
-function Header({ route, navigate }: { route: Route; navigate: (route: Route) => void }) {
-  return <><a className="skip-link" href="#main-content">Skip to main content</a><header className="app-header">
-    <button className="brand ghost" onClick={() => navigate('library')} aria-label="StoryTeller, open scenario library"><Icon>✦</Icon><span>StoryTeller</span></button>
-    <nav aria-label="Primary navigation">{([['library', 'Library'], ['play', 'Current story'], ['settings', 'Settings'], ['wallet', 'Wallet']] as [Route, string][]).map(([key, label]) => <button key={key} className={route === key ? 'nav-link active' : 'nav-link'} aria-current={route === key ? 'page' : undefined} onClick={() => navigate(key)}>{label}</button>)}</nav>
-    <button className="balance" onClick={() => navigate('wallet')} aria-label="Open wallet, 84 credits"><Icon>◇</Icon>84</button>
-  </header></>;
+function Status({
+  tone,
+  title,
+  children,
+  role = "status",
+}: {
+  tone: "success" | "info" | "warning" | "danger";
+  title: string;
+  children: React.ReactNode;
+  role?: "status" | "alert";
+}) {
+  return (
+    <div className="status st-status" data-tone={tone} role={role}>
+      <div>
+        <strong>{title}</strong>
+        <div>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Header({
+  route,
+  navigate,
+}: {
+  route: Route;
+  navigate: (route: Route) => void;
+}) {
+  return (
+    <>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
+      <header className="app-header">
+        <button
+          className="brand ghost"
+          onClick={() => navigate("library")}
+          aria-label="StoryTeller, open scenario library"
+        >
+          <Icon>✦</Icon>
+          <span>StoryTeller</span>
+        </button>
+        <nav aria-label="Primary navigation">
+          {(
+            [
+              ["library", "Library"],
+              ["play", "Current story"],
+              ["settings", "Settings"],
+              ["wallet", "Wallet"],
+            ] as [Route, string][]
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              className={route === key ? "nav-link active" : "nav-link"}
+              aria-current={route === key ? "page" : undefined}
+              onClick={() => navigate(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <button
+          className="balance"
+          onClick={() => navigate("wallet")}
+          aria-label="Open wallet, 84 credits"
+        >
+          <Icon>◇</Icon>84
+        </button>
+      </header>
+    </>
+  );
 }
 
 function Library({ navigate }: { navigate: (route: Route) => void }) {
   const params = new URLSearchParams(window.location.search);
-  const [query, setQuery] = useState(params.get('q') ?? '');
-  const [genre, setGenre] = useState(params.get('genre') ?? 'All');
-  const [state, setState] = useState<AsyncState>('ready');
-  const filtered = scenarios.filter((scenario) => (genre === 'All' || scenario.genre === genre) && scenario.title.toLowerCase().includes(query.toLowerCase()));
+  const [query, setQuery] = useState(params.get("q") ?? "");
+  const [genre, setGenre] = useState(params.get("genre") ?? "All");
+  const [state, setState] = useState<AsyncState>("ready");
+  const filtered = scenarios.filter(
+    (scenario) =>
+      (genre === "All" || scenario.genre === genre) &&
+      scenario.title.toLowerCase().includes(query.toLowerCase()),
+  );
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const next = new URL(window.location.href);
-    if (query) next.searchParams.set('q', query); else next.searchParams.delete('q');
-    if (genre !== 'All') next.searchParams.set('genre', genre); else next.searchParams.delete('genre');
-    window.history.replaceState({}, '', next);
+    if (query) next.searchParams.set("q", query);
+    else next.searchParams.delete("q");
+    if (genre !== "All") next.searchParams.set("genre", genre);
+    else next.searchParams.delete("genre");
+    window.history.replaceState({}, "", next);
   };
-  return <main id="main-content" tabIndex={-1} className="page library-page">
-    <section className="hero"><p className="eyebrow">Scenario library</p><h1>Choose the world. Keep the thread.</h1><p>Original, persistent stories shaped by your choices—not by a fixed ending.</p></section>
-    <form className="filters st-panel" onSubmit={submit} aria-label="Filter scenarios"><label>Search scenarios<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Title or theme" /></label><label>Genre<select value={genre} onChange={(event) => setGenre(event.target.value)}><option>All</option><option>Mystery</option><option>Hopeful</option><option>Adventure</option></select></label><button type="submit">Apply filters</button></form>
-    <div className="fixture-switcher" aria-label="Preview library states"><span>Fixture state</span>{(['ready', 'loading', 'empty', 'error'] as AsyncState[]).map((item) => <button key={item} className="small ghost" onClick={() => setState(item)} aria-pressed={state === item}>{item}</button>)}</div>
-    {state === 'loading' && <section aria-busy="true" aria-label="Loading scenarios" className="card-grid">{[1, 2, 3].map((item) => <article className="scenario-card skeleton" key={item}><span>Loading scenario…</span></article>)}</section>}
-    {state === 'error' && <Status tone="danger" title="The library could not be refreshed" role="alert"><p>Your search is preserved. Check your connection, then try again.</p><button onClick={() => setState('ready')}>Try again</button></Status>}
-    {(state === 'empty' || (state === 'ready' && filtered.length === 0)) && <section className="empty st-panel"><h2>No scenarios match these filters</h2><p>Nothing was removed. Clear “{genre}” and “{query || 'no search term'}” to see every scenario.</p><button onClick={() => { setQuery(''); setGenre('All'); setState('ready'); }}>Clear filters</button></section>}
-    {state === 'ready' && filtered.length > 0 && <section className="card-grid" aria-label="Available scenarios">{filtered.map((scenario, index) => <article className="scenario-card st-panel" key={scenario.title}><div className={`cover cover-${index + 1}`} aria-hidden="true"><span>{String(index + 1).padStart(2, '0')}</span></div><div className="card-copy"><p className="eyebrow">{scenario.genre} · v{scenario.version}</p><h2>{scenario.title}</h2><p>by {scenario.author}</p><p>{scenario.synopsis}</p><ul className="tag-list" aria-label="Content labels">{scenario.labels.map(label => <li key={label}>{label}</li>)}</ul><dl><div><dt>Starting resources</dt><dd>{scenario.resources}</dd></div><div><dt>Expected mechanics</dt><dd>{scenario.mechanics}</dd></div></dl><button onClick={() => navigate('setup')}>{scenario.state}</button></div></article>)}</section>}
-  </main>;
+  return (
+    <main id="main-content" tabIndex={-1} className="page library-page">
+      <section className="hero">
+        <p className="eyebrow">Scenario library</p>
+        <h1 data-route-heading tabIndex={-1}>
+          Choose the world. Keep the thread.
+        </h1>
+        <p>
+          Original, persistent stories shaped by your choices—not by a fixed
+          ending.
+        </p>
+      </section>
+      <form
+        className="filters st-panel"
+        onSubmit={submit}
+        aria-label="Filter scenarios"
+      >
+        <label>
+          Search scenarios
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Title or theme"
+          />
+        </label>
+        <label>
+          Genre
+          <select
+            value={genre}
+            onChange={(event) => setGenre(event.target.value)}
+          >
+            <option>All</option>
+            <option>Mystery</option>
+            <option>Hopeful</option>
+            <option>Adventure</option>
+          </select>
+        </label>
+        <button type="submit">Apply filters</button>
+      </form>
+      <div className="fixture-switcher" aria-label="Preview library states">
+        <span>Fixture state</span>
+        {(["ready", "loading", "empty", "error"] as AsyncState[]).map(
+          (item) => (
+            <button
+              key={item}
+              className="small ghost"
+              onClick={() => setState(item)}
+              aria-pressed={state === item}
+            >
+              {item}
+            </button>
+          ),
+        )}
+      </div>
+      {state === "loading" && (
+        <section
+          aria-busy="true"
+          aria-label="Loading scenarios"
+          className="card-grid"
+        >
+          {[1, 2, 3].map((item) => (
+            <article className="scenario-card skeleton" key={item}>
+              <span>Loading scenario…</span>
+            </article>
+          ))}
+        </section>
+      )}
+      {state === "error" && (
+        <Status
+          tone="danger"
+          title="The library could not be refreshed"
+          role="alert"
+        >
+          <p>
+            Your search is preserved. Check your connection, then try again.
+          </p>
+          <button onClick={() => setState("ready")}>Try again</button>
+        </Status>
+      )}
+      {(state === "empty" || (state === "ready" && filtered.length === 0)) && (
+        <section className="empty st-panel">
+          <h2>No scenarios match these filters</h2>
+          <p>
+            Nothing was removed. Clear “{genre}” and “
+            {query || "no search term"}” to see every scenario.
+          </p>
+          <button
+            onClick={() => {
+              setQuery("");
+              setGenre("All");
+              setState("ready");
+            }}
+          >
+            Clear filters
+          </button>
+        </section>
+      )}
+      {state === "ready" && filtered.length > 0 && (
+        <section className="card-grid" aria-label="Available scenarios">
+          {filtered.map((scenario, index) => (
+            <article className="scenario-card st-panel" key={scenario.title}>
+              <div className={`cover cover-${index + 1}`} aria-hidden="true">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+              </div>
+              <div className="card-copy">
+                <p className="eyebrow">
+                  {scenario.genre} · v{scenario.version}
+                </p>
+                <h2>{scenario.title}</h2>
+                <p>by {scenario.author}</p>
+                <p>{scenario.synopsis}</p>
+                <ul className="tag-list" aria-label="Content labels">
+                  {scenario.labels.map((label) => (
+                    <li key={label}>{label}</li>
+                  ))}
+                </ul>
+                <dl>
+                  <div>
+                    <dt>Starting resources</dt>
+                    <dd>{scenario.resources}</dd>
+                  </div>
+                  <div>
+                    <dt>Expected mechanics</dt>
+                    <dd>{scenario.mechanics}</dd>
+                  </div>
+                </dl>
+                <button onClick={() => navigate("setup")}>
+                  {scenario.state}
+                </button>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+    </main>
+  );
 }
 
 function Setup({ navigate }: { navigate: (route: Route) => void }) {
-  const [name, setName] = useState('A');
+  const [name, setName] = useState("A");
   const invalid = name.trim().length < 2;
-  return <main id="main-content" tabIndex={-1} className="page setup-page"><div className="scenario-summary st-panel"><p className="eyebrow">The Quiet Meridian · v2.4</p><h1>Prepare your arrival</h1><p>A weather station receives tomorrow’s final transmission. Your setup becomes part of this story only.</p><ul className="tag-list"><li>Tension</li><li>Isolation</li><li>Weather</li></ul></div><div className="step-layout"><ol className="steps" aria-label="Setup progress"><li className="done">Scenario</li><li aria-current="step">Protagonist</li><li>Boundaries</li><li>Review</li></ol><form className="setup-form st-panel" onSubmit={(event) => { event.preventDefault(); if (!invalid) navigate('play'); }} noValidate><h2>2. Shape your protagonist</h2>{invalid && <div className="validation-summary" role="alert"><strong>Fix 1 item before starting</strong><a href="#protagonist-name">Enter at least 2 characters for the protagonist name.</a></div>}<label htmlFor="protagonist-name">Protagonist name<input id="protagonist-name" aria-invalid={invalid} aria-describedby={invalid ? 'name-error' : undefined} value={name} onChange={(event) => setName(event.target.value)} /></label>{invalid && <p className="field-error" id="name-error">Enter 2–40 characters.</p>}<fieldset><legend>Privacy</legend><label className="choice"><input type="radio" name="privacy" defaultChecked />Private story</label><label className="choice"><input type="radio" name="privacy" />Invite-only story</label></fieldset><label className="disabled-control">Survival: extreme<input type="checkbox" disabled aria-describedby="survival-reason" /></label><p id="survival-reason" className="reason">Locked by this scenario: weather hazards are fixed at balanced.</p><label>Player author note <span>0 / 400</span><textarea maxLength={400} placeholder="A preference, not an instruction that can change facts or policy." /></label><div className="button-row"><button type="button" className="secondary" onClick={() => navigate('library')}>Back</button><button type="button" className="secondary">Preview setup</button><button type="submit" disabled={invalid} aria-describedby={invalid ? 'start-reason' : undefined}>Start story</button></div>{invalid && <p id="start-reason" className="reason">Resolve the name validation above.</p>}</form></div></main>;
+  return (
+    <main id="main-content" className="page setup-page">
+      <div className="scenario-summary st-panel">
+        <p className="eyebrow">The Quiet Meridian · v2.4</p>
+        <h1 data-route-heading tabIndex={-1}>
+          Prepare your arrival
+        </h1>
+        <p>
+          A weather station receives tomorrow’s final transmission. Your setup
+          becomes part of this story only.
+        </p>
+        <ul className="tag-list">
+          <li>Tension</li>
+          <li>Isolation</li>
+          <li>Weather</li>
+        </ul>
+      </div>
+      <div className="step-layout">
+        <ol className="steps" aria-label="Setup progress">
+          <li className="done">Scenario</li>
+          <li aria-current="step">Protagonist</li>
+          <li>Boundaries</li>
+          <li>Review</li>
+        </ol>
+        <form
+          className="setup-form st-panel"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!invalid) navigate("play");
+          }}
+          noValidate
+        >
+          <h2>2. Shape your protagonist</h2>
+          {invalid && (
+            <div className="validation-summary" role="alert">
+              <strong>Fix 1 item before starting</strong>
+              <a href="#protagonist-name">
+                Enter at least 2 characters for the protagonist name.
+              </a>
+            </div>
+          )}
+          <label htmlFor="protagonist-name">
+            Protagonist name
+            <input
+              id="protagonist-name"
+              aria-invalid={invalid}
+              aria-describedby={invalid ? "name-error" : undefined}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          {invalid && (
+            <p className="field-error" id="name-error">
+              Enter 2–40 characters.
+            </p>
+          )}
+          <fieldset>
+            <legend>Privacy</legend>
+            <label className="choice">
+              <input type="radio" name="privacy" defaultChecked />
+              Private story
+            </label>
+            <label className="choice">
+              <input type="radio" name="privacy" />
+              Invite-only story
+            </label>
+          </fieldset>
+          <label className="disabled-control">
+            Survival: extreme
+            <input
+              type="checkbox"
+              disabled
+              aria-describedby="survival-reason"
+            />
+          </label>
+          <p id="survival-reason" className="reason">
+            Locked by this scenario: weather hazards are fixed at balanced.
+          </p>
+          <label>
+            Player author note <span>0 / 400</span>
+            <textarea
+              maxLength={400}
+              placeholder="A preference, not an instruction that can change facts or policy."
+            />
+          </label>
+          <div className="button-row">
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => navigate("library")}
+            >
+              Back
+            </button>
+            <button type="button" className="secondary">
+              Preview setup
+            </button>
+            <button
+              type="submit"
+              disabled={invalid}
+              aria-describedby={invalid ? "start-reason" : undefined}
+            >
+              Start story
+            </button>
+          </div>
+          {invalid && (
+            <p id="start-reason" className="reason">
+              Resolve the name validation above.
+            </p>
+          )}
+        </form>
+      </div>
+    </main>
+  );
 }
 
 function Play({ navigate }: { navigate: (route: Route) => void }) {
-  const [state, setState] = useState<PlayState>('ready'); const [mode, setMode] = useState('Do'); const [draft, setDraft] = useState('Check whether the antenna is still warm.'); const [panel, setPanel] = useState(false);
-  const submit = (event: FormEvent) => { event.preventDefault(); if (state !== 'quota') setState('streaming'); };
-  return <main id="main-content" tabIndex={-1} className="play-page"><aside className="story-rail st-panel" aria-label="Story navigation"><p className="eyebrow">The Quiet Meridian</p><h1>Station Eos</h1><nav aria-label="Branch history"><button aria-current="page">Turn 14 · Signal</button><button>Turn 13 · Ridge</button><button>Turn 12 · Arrival</button></nav><div className="branch-actions"><button className="secondary">Undo to turn 13</button><button className="secondary">Retry as sibling branch</button><button className="secondary">Redo existing child</button></div></aside><section className="timeline-column"><header className="play-header"><div><p className="eyebrow">Day 3 · 21:40</p><h2>The receiver wakes</h2></div><button className="secondary context-toggle" aria-expanded={panel} onClick={() => setPanel(!panel)}>Story context</button></header><div className="timeline" aria-label="Narrative timeline"><article><header><strong>Narrator</strong><time>21:37</time></header><p>The storm leans into Station Eos until every cable hums. Beneath the static, your own voice counts backward from twelve.</p><div className="result-card"><strong>Observation</strong><p>The transmission timestamp is tomorrow, 04:12.</p></div></article><article><header><strong>You · Look</strong><time>21:39</time></header><p>Check the receiver log against the station clock.</p></article>{state === 'streaming' && <article className="streaming"><header><strong>Narrator</strong><span aria-hidden="true" className="caret">▋</span></header><p>The final line resolves into coordinates just beyond the—</p><div role="status" aria-live="polite">Generating · 8 seconds elapsed</div><button onClick={() => setState('ready')}>Stop generating</button></article>}</div>{state === 'disconnect' && <Status tone="danger" title="Connection interrupted" role="alert"><p>Partial prose and your draft are preserved. Reading remains available.</p><button onClick={() => setState('streaming')}>Resume generation</button></Status>}{state === 'quota' && <Status tone="warning" title="12 more credits required"><p>You have 3 credits. Reading, branches, settings, and wallet remain available.</p><button onClick={() => navigate('wallet')}>Open wallet</button></Status>}<form className="composer st-panel" onSubmit={submit}><div className="mode-list" role="radiogroup" aria-label="Action mode">{['Do', 'Say', 'Narrate', 'Look', 'Ask GM', 'Continue', 'Fast forward', 'Describe'].map(item => <label key={item}><input type="radio" name="mode" value={item} checked={mode === item} onChange={() => setMode(item)} /><span>{item}</span></label>)}</div><label htmlFor="action-draft">{mode} action</label><textarea id="action-draft" value={draft} onChange={(event) => setDraft(event.target.value)} /><div className="composer-actions"><span>{draft.length} / 600</span><button disabled={state === 'quota' || state === 'streaming'}>{state === 'streaming' ? 'Generating…' : `Submit ${mode} action`}</button></div></form><div className="fixture-switcher" aria-label="Preview generation states">{(['ready', 'streaming', 'disconnect', 'quota'] as PlayState[]).map(item => <button key={item} className="small ghost" aria-pressed={state === item} onClick={() => setState(item)}>{item}</button>)}</div></section><aside className={panel ? 'context-panel st-panel open' : 'context-panel st-panel'} aria-label="Story context"><button className="drawer-close secondary" onClick={() => setPanel(false)}>Close context</button><h2>Character</h2><dl><div><dt>Resolve</dt><dd>7 / 10</dd></div><div><dt>Condition</dt><dd>Cold, alert</dd></div></dl><h2>Open threads</h2><ul><li>Origin of tomorrow’s transmission</li><li>Missing weather balloon</li></ul><h2>Inventory</h2><ul><li>Field radio</li><li>Thermal gloves</li><li>Station keys</li></ul></aside></main>;
+  const [state, setState] = useState<PlayState>("ready");
+  const [mode, setMode] = useState("Do");
+  const [draft, setDraft] = useState(
+    "Check whether the antenna is still warm.",
+  );
+  const [panel, setPanel] = useState(false);
+  const [branches, setBranches] = useState(false);
+  const partialProse =
+    "The final line resolves into coordinates just beyond the northern ridge—";
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (state !== "quota") setState("streaming");
+  };
+  return (
+    <main id="main-content" className="play-page">
+      <aside
+        id="branch-history"
+        className={branches ? "story-rail st-panel open" : "story-rail st-panel"}
+        aria-label="Story navigation"
+      >
+        <button
+          className="branch-close secondary"
+          onClick={() => setBranches(false)}
+        >
+          Close branch history
+        </button>
+        <p className="eyebrow">The Quiet Meridian</p>
+        <h2>Station Eos</h2>
+        <nav aria-label="Branch history">
+          <button aria-current="page">Turn 14 · Signal</button>
+          <button>Turn 13 · Ridge</button>
+          <button>Turn 12 · Arrival</button>
+        </nav>
+        <div className="branch-actions">
+          <button className="secondary">Undo to turn 13</button>
+          <button className="secondary">Retry as sibling branch</button>
+          <button className="secondary">Redo existing child</button>
+        </div>
+      </aside>
+      <section className="timeline-column">
+        <header className="play-header">
+          <div>
+            <p className="eyebrow">Day 3 · 21:40</p>
+            <h1 data-route-heading tabIndex={-1}>
+              The receiver wakes
+            </h1>
+          </div>
+          <div className="play-header-actions">
+            <button
+              className="secondary branch-toggle"
+              aria-expanded={branches}
+              aria-controls="branch-history"
+              onClick={() => setBranches(!branches)}
+            >
+              Branch history
+            </button>
+            <button
+              className="secondary context-toggle"
+              aria-expanded={panel}
+              onClick={() => setPanel(!panel)}
+            >
+              Story context
+            </button>
+          </div>
+        </header>
+        <div className="timeline" aria-label="Narrative timeline">
+          <article>
+            <header>
+              <strong>Narrator</strong>
+              <time>21:37</time>
+            </header>
+            <p>
+              The storm leans into Station Eos until every cable hums. Beneath
+              the static, your own voice counts backward from twelve.
+            </p>
+            <div className="result-card">
+              <strong>Observation</strong>
+              <p>The transmission timestamp is tomorrow, 04:12.</p>
+            </div>
+          </article>
+          <article>
+            <header>
+              <strong>You · Look</strong>
+              <time>21:39</time>
+            </header>
+            <p>Check the receiver log against the station clock.</p>
+          </article>
+          {(state === "streaming" || state === "disconnect") && (
+            <article className="streaming">
+              <header>
+                <strong>Narrator</strong>
+                <span aria-hidden="true" className="caret">
+                  ▋
+                </span>
+              </header>
+              <p>{partialProse}</p>
+              {state === "streaming" && (
+                <>
+                  <div role="status" aria-live="polite">
+                    Generating · 8 seconds elapsed
+                  </div>
+                  <button onClick={() => setState("ready")}>
+                    Stop generating
+                  </button>
+                </>
+              )}
+            </article>
+          )}
+        </div>
+        {state === "disconnect" && (
+          <Status tone="danger" title="Connection interrupted" role="alert">
+            <p>
+              Partial prose and your draft are preserved. Reading remains
+              available.
+            </p>
+            <button onClick={() => setState("streaming")}>
+              Resume generation
+            </button>
+          </Status>
+        )}
+        {state === "quota" && (
+          <Status tone="warning" title="12 more credits required">
+            <p>
+              You have 3 credits. Reading, branches, settings, and wallet remain
+              available.
+            </p>
+            <button onClick={() => navigate("wallet")}>Open wallet</button>
+          </Status>
+        )}
+        <form className="composer st-panel" onSubmit={submit}>
+          <div className="mode-list" role="radiogroup" aria-label="Action mode">
+            {[
+              "Do",
+              "Say",
+              "Narrate",
+              "Look",
+              "Ask GM",
+              "Continue",
+              "Fast forward",
+              "Describe",
+            ].map((item) => (
+              <label key={item}>
+                <input
+                  type="radio"
+                  name="mode"
+                  value={item}
+                  checked={mode === item}
+                  onChange={() => setMode(item)}
+                />
+                <span>{item}</span>
+              </label>
+            ))}
+          </div>
+          <label htmlFor="action-draft">{mode} action</label>
+          <textarea
+            id="action-draft"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <div className="composer-actions">
+            <span>{draft.length} / 600</span>
+            <button disabled={state === "quota" || state === "streaming"}>
+              {state === "streaming" ? "Generating…" : `Submit ${mode} action`}
+            </button>
+          </div>
+        </form>
+        <div
+          className="fixture-switcher"
+          aria-label="Preview generation states"
+        >
+          {(["ready", "streaming", "disconnect", "quota"] as PlayState[]).map(
+            (item) => (
+              <button
+                key={item}
+                className="small ghost"
+                aria-pressed={state === item}
+                onClick={() => setState(item)}
+              >
+                {item}
+              </button>
+            ),
+          )}
+        </div>
+      </section>
+      <aside
+        className={
+          panel ? "context-panel st-panel open" : "context-panel st-panel"
+        }
+        aria-label="Story context"
+      >
+        <button
+          className="drawer-close secondary"
+          onClick={() => setPanel(false)}
+        >
+          Close context
+        </button>
+        <h2>Character</h2>
+        <dl>
+          <div>
+            <dt>Resolve</dt>
+            <dd>7 / 10</dd>
+          </div>
+          <div>
+            <dt>Condition</dt>
+            <dd>Cold, alert</dd>
+          </div>
+        </dl>
+        <h2>Open threads</h2>
+        <ul>
+          <li>Origin of tomorrow’s transmission</li>
+          <li>Missing weather balloon</li>
+        </ul>
+        <h2>Inventory</h2>
+        <ul>
+          <li>Field radio</li>
+          <li>Thermal gloves</li>
+          <li>Station keys</li>
+        </ul>
+      </aside>
+    </main>
+  );
 }
 
+interface SettingsDraft {
+  family: string;
+  fontSize: number;
+  reduceMotion: boolean;
+  windowSize: string;
+  autoSummaryOverride: boolean;
+}
+
+const inheritedSettings: SettingsDraft = {
+  family: "Newsreader",
+  fontSize: 18,
+  reduceMotion: true,
+  windowSize: "-1",
+  autoSummaryOverride: false,
+};
+
 function Settings() {
-  const [fontSize, setFontSize] = useState(18); const [family, setFamily] = useState('Newsreader'); const [windowSize, setWindowSize] = useState('-1'); const [override, setOverride] = useState(false); const [saved, setSaved] = useState(true);
-  const invalid = Number(windowSize) !== -1 && (Number(windowSize) < 5 || Number(windowSize) > 100);
-  const previewStyle = useMemo(() => ({ fontFamily: family === 'Newsreader' ? 'Newsreader, Georgia, serif' : 'Atkinson Hyperlegible, system-ui, sans-serif', fontSize }), [family, fontSize]);
-  return <main id="main-content" tabIndex={-1} className="page settings-page"><header className="page-title"><p className="eyebrow">Adventure settings</p><h1>How this story responds</h1><p>Policy resolves in order: platform → scenario → your defaults → this adventure. A later choice cannot widen a safety rule.</p></header>{!saved && <Status tone="warning" title="Unsaved changes"><p>These changes have not been applied. Leaving now will discard them.</p></Status>}<div className="settings-grid"><section className="settings-groups"><fieldset className="setting-group st-panel"><legend>Reading typography</legend><p>Applies immediately in this browser and never enters a model prompt.</p><label>Font family<select value={family} onChange={(event) => { setFamily(event.target.value); setSaved(false); }}><option>Newsreader</option><option>Atkinson Hyperlegible</option></select></label><label>Font size: {fontSize}px<input type="range" min="16" max="28" value={fontSize} onChange={(event) => { setFontSize(Number(event.target.value)); setSaved(false); }} /></label><label className="choice"><input type="checkbox" defaultChecked />Reduce motion <small>OS preference always wins</small></label></fieldset><fieldset className="setting-group st-panel"><legend>Memory and context</legend><div className="source-row"><span className="pill">Inherited from your defaults</span><span>Applies from the next generated turn</span></div><label>Sliding window turns<input aria-invalid={invalid} aria-describedby="window-help window-error" value={windowSize} onChange={(event) => { setWindowSize(event.target.value); setSaved(false); }} /></label><p id="window-help">Use 5–100, or −1 to request unlimited. Platform hard cap: 48,000 prompt tokens.</p>{invalid && <p className="field-error" id="window-error">Enter −1 or a number from 5 to 100.</p>}<button className="secondary" onClick={() => { setWindowSize('24'); setOverride(false); setSaved(false); }}>Reset to inherited</button><label className="choice"><input type="checkbox" checked={override} onChange={(event) => { setOverride(event.target.checked); setSaved(false); }} />Override auto-summary for this adventure</label></fieldset><fieldset className="setting-group st-panel"><legend>World rules</legend><label className="disabled-control"><input type="checkbox" checked readOnly disabled aria-describedby="weather-lock" />Weather exposure</label><p id="weather-lock" className="reason">Locked on by The Quiet Meridian ruleset.</p><label className="disabled-control"><input type="checkbox" disabled aria-describedby="visibility-unavailable" />Private cycle visibility</label><p id="visibility-unavailable" className="reason">Unavailable: this scenario does not provide this information.</p></fieldset><div className="button-row"><button disabled={invalid} onClick={() => setSaved(true)}>Save changes</button><button className="secondary" onClick={() => { setFontSize(18); setFamily('Newsreader'); setSaved(true); }}>Discard changes</button></div></section><aside className="preview st-panel"><p className="eyebrow">Live prose preview</p><p style={previewStyle}>Rain writes silver lines across the glass. The words remain yours to read at your pace.</p><dl><div><dt>Typography</dt><dd>Immediate</dd></div><div><dt>Context window</dt><dd>Next generated turn</dd></div></dl></aside></div></main>;
+  const [savedSettings, setSavedSettings] = useState<SettingsDraft>({
+    ...inheritedSettings,
+  });
+  const [draft, setDraft] = useState<SettingsDraft>({ ...inheritedSettings });
+  const dirty = JSON.stringify(draft) !== JSON.stringify(savedSettings);
+  const invalid =
+    Number(draft.windowSize) !== -1 &&
+    (Number(draft.windowSize) < 5 || Number(draft.windowSize) > 100);
+  const contextInherited =
+    draft.windowSize === inheritedSettings.windowSize &&
+    draft.autoSummaryOverride === inheritedSettings.autoSummaryOverride;
+  const previewStyle = useMemo(
+    () => ({
+      fontFamily:
+        draft.family === "Newsreader"
+          ? "Newsreader, Georgia, serif"
+          : "Atkinson Hyperlegible, system-ui, sans-serif",
+      fontSize: draft.fontSize,
+    }),
+    [draft.family, draft.fontSize],
+  );
+  return (
+    <main id="main-content" className="page settings-page">
+      <header className="page-title">
+        <p className="eyebrow">Adventure settings</p>
+        <h1 data-route-heading tabIndex={-1}>
+          How this story responds
+        </h1>
+        <p>
+          Policy resolves in order: platform → scenario → your defaults → this
+          adventure. A later choice cannot widen a safety rule.
+        </p>
+      </header>
+      {dirty && (
+        <Status tone="warning" title="Unsaved changes">
+          <p>
+            These changes have not been applied. Leaving now will discard them.
+          </p>
+        </Status>
+      )}
+      <div className="settings-grid">
+        <section className="settings-groups">
+          <fieldset className="setting-group st-panel">
+            <legend>Reading typography</legend>
+            <p>
+              Applies immediately in this browser and never enters a model
+              prompt.
+            </p>
+            <label>
+              Font family
+              <select
+                value={draft.family}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    family: event.target.value,
+                  }));
+                }}
+              >
+                <option>Newsreader</option>
+                <option>Atkinson Hyperlegible</option>
+              </select>
+            </label>
+            <label>
+              Font size: {draft.fontSize}px
+              <input
+                type="range"
+                min="16"
+                max="28"
+                value={draft.fontSize}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    fontSize: Number(event.target.value),
+                  }));
+                }}
+              />
+            </label>
+            <label className="choice">
+              <input
+                type="checkbox"
+                checked={draft.reduceMotion}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    reduceMotion: event.target.checked,
+                  }))
+                }
+              />
+              Reduce motion <small>OS preference always wins</small>
+            </label>
+          </fieldset>
+          <fieldset className="setting-group st-panel">
+            <legend>Memory and context</legend>
+            <div className="source-row">
+              <span className="pill">
+                {contextInherited
+                  ? "Inherited from your defaults"
+                  : `Adventure override${dirty ? " · unsaved" : ""}`}
+              </span>
+              <span>Applies from the next generated turn</span>
+            </div>
+            <label>
+              Sliding window turns
+              <input
+                aria-invalid={invalid}
+                aria-describedby={
+                  invalid ? "window-help window-error" : "window-help"
+                }
+                value={draft.windowSize}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    windowSize: event.target.value,
+                  }));
+                }}
+              />
+            </label>
+            <p id="window-help">
+              Use 5–100, or −1 to request unlimited. Platform hard cap: 48,000
+              prompt tokens.
+            </p>
+            {invalid && (
+              <p className="field-error" id="window-error">
+                Enter −1 or a number from 5 to 100.
+              </p>
+            )}
+            <button
+              className="secondary"
+              onClick={() => {
+                setDraft((current) => ({
+                  ...current,
+                  windowSize: inheritedSettings.windowSize,
+                  autoSummaryOverride: inheritedSettings.autoSummaryOverride,
+                }));
+              }}
+            >
+              Reset to inherited
+            </button>
+            <label className="choice">
+              <input
+                type="checkbox"
+                checked={draft.autoSummaryOverride}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    autoSummaryOverride: event.target.checked,
+                  }));
+                }}
+              />
+              Override auto-summary for this adventure
+            </label>
+          </fieldset>
+          <fieldset className="setting-group st-panel">
+            <legend>World rules</legend>
+            <label className="disabled-control">
+              <input
+                type="checkbox"
+                checked
+                readOnly
+                disabled
+                aria-describedby="weather-lock"
+              />
+              Weather exposure
+            </label>
+            <p id="weather-lock" className="reason">
+              Locked on by The Quiet Meridian ruleset.
+            </p>
+            <label className="disabled-control">
+              <input
+                type="checkbox"
+                disabled
+                aria-describedby="visibility-unavailable"
+              />
+              Private cycle visibility
+            </label>
+            <p id="visibility-unavailable" className="reason">
+              Unavailable: this scenario does not provide this information.
+            </p>
+          </fieldset>
+          <div className="button-row">
+            <button
+              disabled={invalid || !dirty}
+              onClick={() => setSavedSettings({ ...draft })}
+            >
+              Save changes
+            </button>
+            <button
+              className="secondary"
+              disabled={!dirty}
+              onClick={() => setDraft({ ...savedSettings })}
+            >
+              Discard changes
+            </button>
+          </div>
+        </section>
+        <aside className="preview st-panel">
+          <p className="eyebrow">Live prose preview</p>
+          <p style={previewStyle}>
+            Rain writes silver lines across the glass. The words remain yours to
+            read at your pace.
+          </p>
+          <dl>
+            <div>
+              <dt>Typography</dt>
+              <dd>Immediate</dd>
+            </div>
+            <div>
+              <dt>Context window</dt>
+              <dd>Next generated turn</dd>
+            </div>
+          </dl>
+        </aside>
+      </div>
+    </main>
+  );
 }
 
 function Wallet() {
-  const [selected, setSelected] = useState('240'); const [state, setState] = useState<CheckoutState>('quote'); const [copied, setCopied] = useState(false); const [revoked, setRevoked] = useState(false);
-  const returnCopy: Record<Exclude<CheckoutState, 'quote' | 'handoff'>, [string, string, 'success' | 'info' | 'warning' | 'danger']> = { pending: ['Payment received—verification pending', 'Credits appear only after a verified provider webhook. Refresh safely or leave this page.', 'warning'], completed: ['240 credits added', 'Verified settlement is complete. Your new balance is 324 credits.', 'success'], cancelled: ['Checkout cancelled', 'No charge was confirmed and no credits were added.', 'info'], failed: ['Checkout could not complete', 'Your selections are preserved. Try again or choose another available method.', 'danger'], delayed: ['Provider confirmation is delayed', 'Order ST-FX-2048 is safe. Credits will appear after verified settlement.', 'warning'], refunded: ['Order refunded', 'The settled credits were reversed under the displayed refund policy.', 'info'], changed: ['Price changed—reconfirm required', 'The old quote expired. Review the new total before opening checkout.', 'warning'] };
-  const status = state !== 'quote' && state !== 'handoff' ? returnCopy[state] : null;
-  return <main id="main-content" tabIndex={-1} className="page wallet-page"><header className="wallet-header"><div><p className="eyebrow">Wallet</p><h1>84 credits</h1><p>Derived balance · refreshed <time>21 Sep, 14:50 UTC</time></p></div><button className="secondary">Refresh balance</button></header>{status && <Status tone={status[2]} title={status[0]} role={status[2] === 'danger' ? 'alert' : 'status'}><p>{status[1]}</p><p><strong>Order reference:</strong> ST-FX-2048</p><div className="button-row"><button onClick={() => setState('pending')}>Refresh status</button><button className="secondary" onClick={() => setState('quote')}>Back to packages</button></div></Status>}<section aria-labelledby="packages-title"><h2 id="packages-title">Credit packages</h2><div className="package-grid">{creditPackages.map(([value, credits, price, note]) => <label className={selected === value ? 'package st-panel selected' : 'package st-panel'} key={value}><input type="radio" name="package" value={value} checked={selected === value} onChange={() => setSelected(value)} /><span className="eyebrow">{note}</span><strong>{credits}</strong><span>{price} · tax included where required</span><small>Price revision EUR-2026-09 · quote expires 15:08 UTC</small></label>)}</div></section><div className="wallet-grid"><section className="checkout st-panel"><h2>Payment method</h2><fieldset><legend className="st-visually-hidden">Choose a payment method</legend><label className="choice"><input type="radio" name="payment" defaultChecked />Card at payment provider</label><label className="choice"><input type="radio" name="payment" />Bank redirect at payment provider</label><label className="choice disabled-control"><input type="radio" name="payment" disabled aria-describedby="wallet-unavailable" />Wallet payment</label><p id="wallet-unavailable" className="reason">Unavailable for this currency.</p></fieldset><div className="quote"><p><strong>Selected:</strong> {selected} credits</p><p><strong>Terms:</strong> Personal use · refund policy RP-4</p><p><strong>Eligibility:</strong> Available in your region</p></div>{state === 'handoff' ? <Status tone="info" title="Ready for external checkout"><p>A new payment-provider page would open. StoryTeller does not collect payment details here. Returning to this page never grants credits by itself.</p><button onClick={() => setState('pending')}>Continue to fake provider</button></Status> : <button onClick={() => setState('handoff')}>Review external checkout handoff</button>}</section><section className="referral st-panel"><p className="eyebrow">Referral</p><h2>Share a private code</h2><p>Invite rewards are aggregate and never reveal another person’s identity, activity, or payment details.</p><output className="referral-code">{revoked ? 'Code revoked' : 'LANTERN-7K4Q'}</output><div className="button-row"><button disabled={revoked} onClick={() => setCopied(true)}>Copy referral link</button><button disabled={revoked} className="secondary" onClick={() => setRevoked(true)}>Revoke code</button></div>{copied && <p role="status">Referral link copied.</p>}<dl><div><dt>Eligible joins</dt><dd>4</dd></div><div><dt>Rewards settled</dt><dd>120 credits</dd></div><div><dt>Under review</dt><dd>1</dd></div></dl><small>Campaign R-12 · no self-referrals · rewards may reverse after refunds or chargebacks.</small></section></div><div className="fixture-switcher" aria-label="Preview checkout return states">{(['pending', 'completed', 'cancelled', 'failed', 'delayed', 'refunded', 'changed'] as CheckoutState[]).map(item => <button key={item} className="small ghost" aria-pressed={state === item} onClick={() => setState(item)}>{item}</button>)}</div></main>;
+  const [selected, setSelected] = useState("240");
+  const [state, setState] = useState<CheckoutState>("quote");
+  const [copied, setCopied] = useState(false);
+  const [revoked, setRevoked] = useState(false);
+  const returnCopy: Record<
+    Exclude<CheckoutState, "quote" | "handoff">,
+    [string, string, "success" | "info" | "warning" | "danger"]
+  > = {
+    pending: [
+      "Payment received—verification pending",
+      "Credits appear only after a verified provider webhook. Refresh safely or leave this page.",
+      "warning",
+    ],
+    completed: [
+      "240 credits added",
+      "Verified settlement is complete. Your new balance is 324 credits.",
+      "success",
+    ],
+    cancelled: [
+      "Checkout cancelled",
+      "No charge was confirmed and no credits were added.",
+      "info",
+    ],
+    failed: [
+      "Checkout could not complete",
+      "Your selections are preserved. Try again or choose another available method.",
+      "danger",
+    ],
+    delayed: [
+      "Provider confirmation is delayed",
+      "Order ST-FX-2048 is safe. Credits will appear after verified settlement.",
+      "warning",
+    ],
+    refunded: [
+      "Order refunded",
+      "The settled credits were reversed under the displayed refund policy.",
+      "info",
+    ],
+    changed: [
+      "Price changed—reconfirm required",
+      "The old quote expired. Review the new total before opening checkout.",
+      "warning",
+    ],
+  };
+  const status =
+    state !== "quote" && state !== "handoff" ? returnCopy[state] : null;
+  return (
+    <main id="main-content" className="page wallet-page">
+      <header className="wallet-header">
+        <div>
+          <p className="eyebrow">Wallet</p>
+          <h1 data-route-heading tabIndex={-1}>
+            84 credits
+          </h1>
+          <p>
+            Derived balance · refreshed <time>21 Sep, 14:50 UTC</time>
+          </p>
+        </div>
+        <button className="secondary">Refresh balance</button>
+      </header>
+      {status && (
+        <Status
+          tone={status[2]}
+          title={status[0]}
+          role={status[2] === "danger" ? "alert" : "status"}
+        >
+          <p>{status[1]}</p>
+          <p>
+            <strong>Order reference:</strong> ST-FX-2048
+          </p>
+          <div className="button-row">
+            <button onClick={() => setState("pending")}>Refresh status</button>
+            <button className="secondary" onClick={() => setState("quote")}>
+              Back to packages
+            </button>
+          </div>
+        </Status>
+      )}
+      <section aria-labelledby="packages-title">
+        <h2 id="packages-title">Credit packages</h2>
+        <div className="package-grid">
+          {creditPackages.map(([value, credits, price, note]) => (
+            <label
+              className={
+                selected === value
+                  ? "package st-panel selected"
+                  : "package st-panel"
+              }
+              key={value}
+            >
+              <input
+                type="radio"
+                name="package"
+                value={value}
+                checked={selected === value}
+                onChange={() => setSelected(value)}
+              />
+              <span className="eyebrow">{note}</span>
+              <strong>{credits}</strong>
+              <span>{price} · tax included where required</span>
+              <small>
+                Price revision EUR-2026-09 · quote expires 15:08 UTC
+              </small>
+            </label>
+          ))}
+        </div>
+      </section>
+      <div className="wallet-grid">
+        <section className="checkout st-panel">
+          <h2>Payment method</h2>
+          <fieldset>
+            <legend className="st-visually-hidden">
+              Choose a payment method
+            </legend>
+            <label className="choice">
+              <input type="radio" name="payment" defaultChecked />
+              Card at payment provider
+            </label>
+            <label className="choice">
+              <input type="radio" name="payment" />
+              Bank redirect at payment provider
+            </label>
+            <label className="choice disabled-control">
+              <input
+                type="radio"
+                name="payment"
+                disabled
+                aria-describedby="wallet-unavailable"
+              />
+              Wallet payment
+            </label>
+            <p id="wallet-unavailable" className="reason">
+              Unavailable for this currency.
+            </p>
+          </fieldset>
+          <div className="quote">
+            <p>
+              <strong>Selected:</strong> {selected} credits
+            </p>
+            <p>
+              <strong>Terms:</strong> Personal use · refund policy RP-4
+            </p>
+            <p>
+              <strong>Eligibility:</strong> Available in your region
+            </p>
+          </div>
+          {state === "handoff" ? (
+            <Status tone="info" title="Ready for external checkout">
+              <p>
+                A new payment-provider page would open. StoryTeller does not
+                collect payment details here. Returning to this page never
+                grants credits by itself.
+              </p>
+              <button onClick={() => setState("pending")}>
+                Continue to fake provider
+              </button>
+            </Status>
+          ) : (
+            <button onClick={() => setState("handoff")}>
+              Review external checkout handoff
+            </button>
+          )}
+        </section>
+        <section className="referral st-panel">
+          <p className="eyebrow">Referral</p>
+          <h2>Share a private code</h2>
+          <p>
+            Invite rewards are aggregate and never reveal another person’s
+            identity, activity, or payment details.
+          </p>
+          <output className="referral-code">
+            {revoked ? "Code revoked" : "LANTERN-7K4Q"}
+          </output>
+          <div className="button-row">
+            <button disabled={revoked} onClick={() => setCopied(true)}>
+              Copy referral link
+            </button>
+            <button
+              disabled={revoked}
+              className="secondary"
+              onClick={() => setRevoked(true)}
+            >
+              Revoke code
+            </button>
+          </div>
+          {copied && <p role="status">Referral link copied.</p>}
+          <dl>
+            <div>
+              <dt>Eligible joins</dt>
+              <dd>4</dd>
+            </div>
+            <div>
+              <dt>Rewards settled</dt>
+              <dd>120 credits</dd>
+            </div>
+            <div>
+              <dt>Under review</dt>
+              <dd>1</dd>
+            </div>
+          </dl>
+          <small>
+            Campaign R-12 · no self-referrals · rewards may reverse after
+            refunds or chargebacks.
+          </small>
+        </section>
+      </div>
+      <div
+        className="fixture-switcher"
+        aria-label="Preview checkout return states"
+      >
+        {(
+          [
+            "pending",
+            "completed",
+            "cancelled",
+            "failed",
+            "delayed",
+            "refunded",
+            "changed",
+          ] as CheckoutState[]
+        ).map((item) => (
+          <button
+            key={item}
+            className="small ghost"
+            aria-pressed={state === item}
+            onClick={() => setState(item)}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+    </main>
+  );
 }
 
 export function App() {
   const [route, navigate] = useRoute();
-  if (window.location.pathname === '/loading') return <LoadingShell />;
-  if (window.location.pathname === '/error') return <ErrorShell onRetry={() => window.location.reload()} />;
+  if (window.location.pathname === "/loading") return <LoadingShell />;
+  if (window.location.pathname === "/error")
+    return <ErrorShell onRetry={() => window.location.reload()} />;
   if (!route) return <NotFoundShell />;
-  return <div className="app"><Header route={route} navigate={navigate} />{route === 'library' && <Library navigate={navigate} />}{route === 'setup' && <Setup navigate={navigate} />}{route === 'play' && <Play navigate={navigate} />}{route === 'settings' && <Settings />}{route === 'wallet' && <Wallet />}</div>;
+  return (
+    <div className="app">
+      <Header route={route} navigate={navigate} />
+      {route === "library" && <Library navigate={navigate} />}
+      {route === "setup" && <Setup navigate={navigate} />}
+      {route === "play" && <Play navigate={navigate} />}
+      {route === "settings" && <Settings />}
+      {route === "wallet" && <Wallet />}
+    </div>
+  );
 }
