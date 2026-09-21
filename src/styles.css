@@ -19,7 +19,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 button { background: var(--st-color-accent); border: 1px solid var(--st-color-accent); border-radius: .5rem; color: var(--st-color-accent-text); cursor: pointer; font-family: var(--st-font-label); font-weight: 700; min-height: 2.75rem; padding: .65rem 1rem; transition: background-color var(--st-motion-micro) ease, border-color var(--st-motion-micro) ease, color var(--st-motion-micro) ease, transform var(--st-motion-micro) ease; }
 button:hover { filter: brightness(1.08); transform: translateY(-1px); }
 button:active { transform: translateY(0); }
-button:disabled { background: var(--st-color-surface-raised); border-color: var(--st-color-border); color: var(--st-color-muted); cursor: not-allowed; filter: none; }
+button:disabled, button:disabled:hover, button:disabled:focus-visible { background: var(--st-color-surface-raised); border-color: var(--st-color-border); color: var(--st-color-muted); cursor: not-allowed; filter: none; transform: none; }
 button.secondary, button.ghost, .nav-link { background: transparent; border-color: var(--st-color-border); color: var(--st-color-text); }
 button.small { min-height: 2.75rem; padding: .4rem .7rem; text-transform: capitalize; }
 h1, h2, h3, p { margin-top: 0; }
