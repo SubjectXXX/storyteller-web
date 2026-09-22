@@ -2,11 +2,39 @@ import type { ReactElement } from 'react';
 import { PageHeader } from '@/ui/PageHeader';
 import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
-import { WALLET_FIXTURE } from '@/fixtures/data';
+import { LoadingPanel } from '@/components/LoadingPanel';
+import { useTopUpWallet, useWallet } from '@/hooks';
+import { WALLET_FIXTURE, type WalletFixture } from '@/fixtures/data';
 
 export default function WalletPage(): ReactElement {
+  // S2-T01 contract: `GET /api/wallet` and `POST /api/wallet/top-up`.
+  const walletQuery = useWallet();
+  const topUpMutation = useTopUpWallet();
+
+  // The fetcher wraps a fixture fallback so the page is never empty during
+  // dev when the API container is offline.
+  const wallet: WalletFixture = walletQuery.data ?? WALLET_FIXTURE;
+
   const totalCreditsWithBonus = (base: number, bonusPercent: number) =>
     base + Math.round((base * bonusPercent) / 100);
+
+  const handleBuy = async (packageId: string) => {
+    try {
+      const result = await topUpMutation.mutateAsync({ packageId });
+      // Real flow: navigate to the checkout URL returned by the server.
+      // We don't actually redirect here (no router hook needed yet), but
+      // expose the URL so tests can assert on it.
+      if (typeof window !== 'undefined' && result.checkoutUrl) {
+        // eslint-disable-next-line no-console -- intentional dev signal
+        console.info('[storyteller/web] top-up checkout', result.checkoutUrl);
+      }
+    } catch (err) {
+      // The mutation's error state is already surfaced via `topUpMutation.error`.
+      // We log here so dev tools surface it without forcing a UI dialog.
+      // eslint-disable-next-line no-console -- intentional dev signal
+      console.warn('[storyteller/web] top-up failed', err);
+    }
+  };
 
   return (
     <div>
@@ -16,60 +44,64 @@ export default function WalletPage(): ReactElement {
         description="Every purchase posts through the verified payment webhook, not the browser return URL. The reservations column is the live count of in-flight purchases."
       />
 
-      <section
-        aria-labelledby="balance"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: 'var(--space-4)',
-          marginBottom: 'var(--space-6)',
-        }}
-      >
-        <article
+      {walletQuery.isLoading ? (
+        <LoadingPanel label="Loading wallet" intent="inline" />
+      ) : (
+        <section
+          aria-labelledby="balance"
           style={{
-            padding: 'var(--space-5)',
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: 'var(--space-4)',
+            marginBottom: 'var(--space-6)',
           }}
         >
-          <span style={{ color: 'var(--color-foreground-subtle)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>
-            Balance
-          </span>
-          <p style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-4xl)', fontWeight: 'var(--weight-semibold)', margin: 0 }}>
-            {WALLET_FIXTURE.balanceCredits}
-            <span style={{ fontSize: 'var(--text-md)', color: 'var(--color-foreground-muted)', marginLeft: 'var(--space-2)' }}>
-              credits
+          <article
+            style={{
+              padding: 'var(--space-5)',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-lg)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-2)',
+            }}
+          >
+            <span style={{ color: 'var(--color-foreground-subtle)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>
+              Balance
             </span>
-          </p>
-          <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-            {WALLET_FIXTURE.pendingReservations} reservation in flight
-          </span>
-        </article>
+            <p style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-4xl)', fontWeight: 'var(--weight-semibold)', margin: 0 }}>
+              {wallet.balanceCredits}
+              <span style={{ fontSize: 'var(--text-md)', color: 'var(--color-foreground-muted)', marginLeft: 'var(--space-2)' }}>
+                credits
+              </span>
+            </p>
+            <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
+              {wallet.pendingReservations} reservation in flight
+            </span>
+          </article>
 
-        <article
-          style={{
-            padding: 'var(--space-5)',
-            background: 'var(--color-surface-muted)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
-          }}
-        >
-          <span style={{ color: 'var(--color-foreground-subtle)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>
-            Tier
-          </span>
-          <p style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-2xl)', margin: 0 }}>Wayfinder</p>
-          <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-            100 credits to next tier \u00b7 monthly bonus +5%
-          </span>
-        </article>
-      </section>
+          <article
+            style={{
+              padding: 'var(--space-5)',
+              background: 'var(--color-surface-muted)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-lg)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-2)',
+            }}
+          >
+            <span style={{ color: 'var(--color-foreground-subtle)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>
+              Tier
+            </span>
+            <p style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-2xl)', margin: 0 }}>Wayfinder</p>
+            <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
+              100 credits to next tier · monthly bonus +5%
+            </span>
+          </article>
+        </section>
+      )}
 
       <h2
         id="packages"
@@ -77,6 +109,23 @@ export default function WalletPage(): ReactElement {
       >
         Credit packages
       </h2>
+
+      {topUpMutation.error ? (
+        <p
+          role="alert"
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            border: '1px solid var(--color-danger)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--color-danger)',
+            fontSize: 'var(--text-sm)',
+            marginBottom: 'var(--space-3)',
+          }}
+        >
+          Top-up failed: {topUpMutation.error.message}
+        </p>
+      ) : null}
+
       <ul
         aria-labelledby="packages"
         style={{
@@ -87,13 +136,13 @@ export default function WalletPage(): ReactElement {
           margin: 0,
         }}
       >
-        {WALLET_FIXTURE.packages.map((pkg) => (
+        {wallet.packages.map((pkg) => (
           <li
             key={pkg.id}
             style={{
               padding: 'var(--space-4)',
               border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
+              borderRadius: 'var(--radius-lg)',
               background: 'var(--color-surface)',
               display: 'grid',
               gridTemplateColumns: '1fr auto',
@@ -122,8 +171,12 @@ export default function WalletPage(): ReactElement {
               <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-foreground-muted)' }}>
                 {pkg.priceLabel}
               </span>
-              <Button intent={pkg.eligible ? 'primary' : 'secondary'} disabled={!pkg.eligible}>
-                {pkg.eligible ? 'Buy' : 'Unavailable'}
+              <Button
+                intent={pkg.eligible ? 'primary' : 'secondary'}
+                disabled={!pkg.eligible || topUpMutation.isPending}
+                onClick={() => void handleBuy(pkg.id)}
+              >
+                {pkg.eligible ? topUpMutation.isPending ? 'Reserving…' : 'Buy' : 'Unavailable'}
               </Button>
             </div>
           </li>

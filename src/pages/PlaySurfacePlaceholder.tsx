@@ -4,7 +4,9 @@ import { useParams, Link } from 'react-router';
 import { PageHeader } from '@/ui/PageHeader';
 import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
-import { PLAY_FIXTURE, findScenario, type ChoiceFixture } from '@/fixtures/data';
+import { LoadingPanel } from '@/components/LoadingPanel';
+import { usePlayTurn, useScenario } from '@/hooks';
+import { PLAY_FIXTURE, type ChoiceFixture } from '@/fixtures/data';
 
 const CHOICE_INTENT: Record<ChoiceFixture['tone'], 'primary' | 'secondary' | 'ghost'> = {
   bold: 'primary',
@@ -14,7 +16,12 @@ const CHOICE_INTENT: Record<ChoiceFixture['tone'], 'primary' | 'secondary' | 'gh
 
 export default function PlaySurfacePlaceholder(): ReactElement {
   const { adventureId } = useParams<{ adventureId?: string }>();
-  const scenario = adventureId ? findScenario(adventureId) : undefined;
+
+  // S2-T01 contract: `/api/scenarios/:id` and `/api/scenarios/:id/play-turn`.
+  // The api-client falls back to fixtures when the API is unreachable so the
+  // placeholder keeps working in dev.
+  const scenarioQuery = useScenario(adventureId);
+  const turnQuery = usePlayTurn(adventureId);
 
   const [history, setHistory] = useState<readonly ChoiceFixture[]>([]);
   const lastChoice = history[history.length - 1];
@@ -26,14 +33,18 @@ export default function PlaySurfacePlaceholder(): ReactElement {
   const reset = () => setHistory([]);
 
   const scenarioLabel = useMemo(() => {
-    if (!scenario) return 'Sample scenario';
-    return scenario.title;
-  }, [scenario]);
+    if (scenarioQuery.data) return scenarioQuery.data.title;
+    if (adventureId) return `Scenario ${adventureId}`;
+    return 'Sample scenario';
+  }, [scenarioQuery.data, adventureId]);
+
+  const turn = turnQuery.data ?? PLAY_FIXTURE;
+  const isInitialLoading = scenarioQuery.isLoading || turnQuery.isLoading;
 
   return (
     <div>
       <PageHeader
-        eyebrow={`Chapter ${PLAY_FIXTURE.chapter} \u00b7 ${PLAY_FIXTURE.beat}`}
+        eyebrow={`Chapter ${turn.chapter} · ${turn.beat}`}
         title={scenarioLabel}
         description="The full timeline, composer, and inventory land in S2. This is the Stage S1 fixture: choose a beat to advance the conversation and verify the keyboard / screen reader flow."
         actions={
@@ -50,70 +61,74 @@ export default function PlaySurfacePlaceholder(): ReactElement {
         }
       />
 
-      <article
-        style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-md)',
-          padding: 'var(--space-5) var(--space-6)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-4)',
-        }}
-        aria-live="polite"
-      >
-        <p className="prose" style={{ margin: 0 }}>
-          {PLAY_FIXTURE.narrative}
-        </p>
+      {isInitialLoading ? (
+        <LoadingPanel label="Loading play turn" intent="inline" />
+      ) : (
+        <article
+          style={{
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--space-5) var(--space-6)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-4)',
+          }}
+          aria-live="polite"
+        >
+          <p className="prose" style={{ margin: 0 }}>
+            {turn.narrative}
+          </p>
 
-        {history.length > 0 && (
-          <ol
-            aria-label="Choices you have made"
+          {history.length > 0 && (
+            <ol
+              aria-label="Choices you have made"
+              style={{
+                borderTop: '1px solid var(--color-border)',
+                paddingTop: 'var(--space-3)',
+                margin: 0,
+                padding: 'var(--space-3) 0 0 0',
+                listStyle: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-1)',
+              }}
+            >
+              {history.map((c, index) => (
+                <li key={`${c.id}-${index}`} style={{ fontSize: 'var(--text-sm)', color: 'var(--color-foreground-muted)' }}>
+                  <strong style={{ color: 'var(--color-foreground)', fontFamily: 'var(--font-serif)' }}>
+                    {index + 1}. {c.label}
+                  </strong>{' '}
+                  — {c.tone}
+                </li>
+              ))}
+            </ol>
+          )}
+
+          <div
+            aria-label="Available choices"
             style={{
-              borderTop: '1px solid var(--color-border)',
-              paddingTop: 'var(--space-3)',
-              margin: 0,
-              padding: 'var(--space-3) 0 0 0',
-              listStyle: 'none',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-1)',
+              display: 'grid',
+              gap: 'var(--space-2)',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
             }}
           >
-            {history.map((c, index) => (
-              <li key={`${c.id}-${index}`} style={{ fontSize: 'var(--text-sm)', color: 'var(--color-foreground-muted)' }}>
-                <strong style={{ color: 'var(--color-foreground)', fontFamily: 'var(--font-serif)' }}>
-                  {index + 1}. {c.label}
-                </strong>{' '}
-                \u2014 {c.tone}
-              </li>
-            ))}
-          </ol>
-        )}
-
-        <div
-          aria-label="Available choices"
-          style={{
-            display: 'grid',
-            gap: 'var(--space-2)',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          }}
-        >
-          {PLAY_FIXTURE.choices.map((choice) => {
-            const intent = lastChoice?.id === choice.id ? 'primary' : CHOICE_INTENT[choice.tone];
-            return (
-              <Button
-                key={choice.id}
-                intent={intent}
-                onClick={() => handleChoice(choice)}
-                aria-label={`Choose: ${choice.label} (${choice.tone})`}
-              >
-                {choice.label}
-              </Button>
-            );
-          })}
-        </div>
-      </article>
+            {turn.choices.map((choice) => {
+              const intent = lastChoice?.id === choice.id ? 'primary' : CHOICE_INTENT[choice.tone];
+              return (
+                <Button
+                  key={choice.id}
+                  intent={intent}
+                  onClick={() => handleChoice(choice)}
+                  aria-label={`Choose: ${choice.label} (${choice.tone})`}
+                >
+                  {choice.label}
+                </Button>
+              );
+            })}
+          </div>
+        </article>
+      )}
 
       <section style={{ marginTop: 'var(--space-6)' }}>
         <h2 style={{ fontSize: 'var(--text-lg)', fontFamily: 'var(--font-serif)' }}>Composer preview</h2>
@@ -138,7 +153,7 @@ export default function PlaySurfacePlaceholder(): ReactElement {
             id="composer"
             name="composer"
             rows={3}
-            placeholder="Describe what you do\u2026"
+            placeholder="Describe what you do…"
             style={{
               border: '1px solid var(--color-border)',
               borderRadius: 'var(--radius-md)',
@@ -153,7 +168,7 @@ export default function PlaySurfacePlaceholder(): ReactElement {
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Pill intent="muted" title="Disabled until S2">
-              Composer \u00b7 S2
+              Composer · S2
             </Pill>
             <Button intent="primary" disabled aria-label="Disabled until Stage S2 ships">
               Send (S2)

@@ -3,7 +3,15 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { PageHeader } from '@/ui/PageHeader';
 import { Pill, type PillIntent } from '@/ui/Pill';
-import { SCENARIO_FIXTURES, type ScenarioFixture, type ScenarioMood, type ScenarioRating } from '@/fixtures/data';
+import { LoadingPanel } from '@/components/LoadingPanel';
+import { useScenarios } from '@/hooks';
+import {
+  SCENARIO_FIXTURES,
+  type ScenarioFixture,
+  type ScenarioMood,
+  type ScenarioRating,
+} from '@/fixtures/data';
+import { ApiError } from '@/api-client';
 
 const RATING_LABEL: Record<ScenarioRating, string> = {
   'all-ages': 'All ages',
@@ -28,8 +36,23 @@ export default function ScenarioLibraryPage(): ReactElement {
   const [filter, setFilter] = useState('');
   const [rating, setRating] = useState<'all' | ScenarioRating>('all');
 
+  // The hook fetches via `/api/scenarios` and the api-client wraps a fixture
+  // fallback so the page still renders offline (S2-T01 will own the contract).
+  const queryParams = useMemo(() => {
+    const params: { rating?: ScenarioRating; q?: string } = {};
+    if (rating !== 'all') params.rating = rating;
+    if (filter.trim().length > 0) params.q = filter.trim();
+    return params;
+  }, [rating, filter]);
+
+  const { data, isLoading, error, refetch } = useScenarios(queryParams);
+
+  // Fixture fallback path: when the API is unreachable the fetcher returns
+  // the S1 fixture list. We still apply local filtering on the client so the
+  // UX matches what `/api/scenarios?rating=...&q=...` would do server-side.
+  const source: ReadonlyArray<ScenarioFixture> = data ?? SCENARIO_FIXTURES;
   const filtered = useMemo(() => {
-    return SCENARIO_FIXTURES.filter((s) => {
+    return source.filter((s) => {
       if (rating !== 'all' && s.rating !== rating) return false;
       if (!filter) return true;
       const needle = filter.toLowerCase();
@@ -39,7 +62,7 @@ export default function ScenarioLibraryPage(): ReactElement {
         s.synopsis.toLowerCase().includes(needle)
       );
     });
-  }, [filter, rating]);
+  }, [source, filter, rating]);
 
   return (
     <div>
@@ -77,17 +100,28 @@ export default function ScenarioLibraryPage(): ReactElement {
         </label>
       </div>
 
+      {isLoading ? (
+        <LoadingPanel label="Loading scenarios" intent="inline" />
+      ) : error && !data ? (
+        // Render the offline banner but keep the fixture fallback list visible
+        // so the player can still pick a scenario. The error banner makes the
+        // degraded state obvious to the developer without blocking the UX.
+        <div data-testid="library-error" role="status" aria-live="polite" style={{ marginBottom: 'var(--space-3)' }}>
+          <ApiErrorBanner error={error} onRetry={() => void refetch()} />
+        </div>
+      ) : null}
+
       {filtered.length === 0 ? (
         <p
           style={{
             padding: 'var(--space-6)',
             border: '1px dashed var(--color-border)',
-            borderRadius: 'var(--radius-md)',
+            borderRadius: 'var(--radius-lg)',
             textAlign: 'center',
             color: 'var(--color-foreground-muted)',
           }}
         >
-          No scenarios match \u201c{filter}\u201d. Try a different keyword or rating.
+          No scenarios match “{filter}”. Try a different keyword or rating.
         </p>
       ) : (
         <ul
@@ -108,7 +142,7 @@ export default function ScenarioLibraryPage(): ReactElement {
                 by {scenario.author}
               </p>
               <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-foreground-subtle)', margin: 0 }}>
-                {scenario.chapters} chapters \u00b7 {scenario.durationMinutes} min
+                {scenario.chapters} chapters · {scenario.durationMinutes} min
               </p>
               <p className="prose" style={{ margin: 0 }}>{scenario.synopsis}</p>
               <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
@@ -161,6 +195,42 @@ function ScenarioCover({ scenario }: { scenario: ScenarioFixture }): ReactElemen
   );
 }
 
+function ApiErrorBanner({ error, onRetry }: { error: ApiError; onRetry: () => void }): ReactElement {
+  return (
+    <p
+      style={{
+        padding: 'var(--space-3) var(--space-4)',
+        border: '1px solid var(--color-warning)',
+        borderRadius: 'var(--radius-md)',
+        background: 'var(--color-surface-muted)',
+        color: 'var(--color-foreground)',
+        fontSize: 'var(--text-sm)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 'var(--space-3)',
+      }}
+    >
+      <span>
+        Could not reach the API ({error.status === 0 ? 'offline' : error.status}). Showing local fixtures.
+      </span>
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{
+          padding: 'var(--space-1) var(--space-3)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--color-surface)',
+          cursor: 'pointer',
+        }}
+      >
+        Retry
+      </button>
+    </p>
+  );
+}
+
 const fieldStyle: CSSProperties = { display: 'inline-flex', flexDirection: 'column' };
 const inputStyle: CSSProperties = {
   padding: 'var(--space-2) var(--space-3)',
@@ -176,7 +246,7 @@ const inputStyle: CSSProperties = {
 const cardStyle: CSSProperties = {
   background: 'var(--color-surface)',
   border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-md)',
+  borderRadius: 'var(--radius-lg)',
   padding: 'var(--space-3)',
   display: 'flex',
   flexDirection: 'column',
