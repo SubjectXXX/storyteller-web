@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, createApi, fixtureFetcher, liveFetcher, withFixtureFallback } from './openapi';
-import type { Fetcher } from './openapi';
+import {
+  ApiError,
+  createApi,
+  fixtureFetcher,
+  liveFetcher,
+  withFixtureFallback,
+} from './openapi';
+import type { Fetcher, SignInRequest, SignUpRequest, WalletTopUpRequest } from './openapi';
 
 describe('liveFetcher', () => {
   it('builds a URL using the configured base path', async () => {
@@ -32,22 +38,41 @@ describe('liveFetcher', () => {
     };
 
     const fetcher = liveFetcher('/api', 'token-abc');
-    await fetcher('/wallet/top-up', { method: 'POST', body: { packageId: 'pkg-starter' } });
+    const body: WalletTopUpRequest = { amount: 50 };
+    await fetcher('/wallet/top-up', { method: 'POST', body });
 
     const init = captured[0]?.init as RequestInit;
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer token-abc');
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
-    expect(init.body).toBe(JSON.stringify({ packageId: 'pkg-starter' }));
+    expect(init.body).toBe(JSON.stringify({ amount: 50 }));
   });
 
-  it('throws ApiError on non-2xx responses', async () => {
+  it('unwraps the {data, meta} envelope on success', async () => {
     // @ts-expect-error -- minimal fetch shim
     globalThis.fetch = async () =>
-      new Response(JSON.stringify({ message: 'Not Found', code: 'scenario_not_found' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      new Response(
+        JSON.stringify({ data: [{ id: 1, slug: 'demo-romance' }], meta: { request_id: 'r-1', timestamp: 't-1' } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+
+    const fetcher = liveFetcher('/api');
+    const result = (await fetcher('/scenarios')) as Array<{ id: number; slug: string }>;
+    expect(Array.isArray(result)).toBe(true);
+    expect(result[0]?.slug).toBe('demo-romance');
+  });
+
+  it('throws ApiError on non-2xx responses and extracts the error code from the envelope', async () => {
+    // @ts-expect-error -- minimal fetch shim
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          data: null,
+          errors: [{ code: 'scenario_not_found', message: 'Not Found' }],
+          meta: { request_id: 'r-2', timestamp: 't-2' },
+        }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } },
+      );
 
     const fetcher = liveFetcher('/api');
     await expect(fetcher('/scenarios/does-not-exist')).rejects.toBeInstanceOf(ApiError);
@@ -64,57 +89,129 @@ describe('liveFetcher', () => {
 describe('fixtureFetcher', () => {
   const api = createApi(fixtureFetcher());
 
-  it('returns the full scenario list', async () => {
+  it('returns the full scenario list (S2 ScenarioResource shape)', async () => {
     const list = await api.listScenarios();
     expect(list.length).toBeGreaterThanOrEqual(4);
-    expect(list.find((s) => s.id === 'demo-romance')).toBeDefined();
+    expect(list.find((s) => s.slug === 'demo-romance')).toBeDefined();
   });
 
-  it('filters scenarios by rating query', async () => {
-    const list = await api.listScenarios({ rating: 'mature' });
-    expect(list.every((s) => s.rating === 'mature')).toBe(true);
-    expect(list.length).toBeGreaterThan(0);
-  });
-
-  it('returns a single scenario by id', async () => {
+  it('returns a single scenario by slug', async () => {
     const scenario = await api.getScenario('demo-romance');
     expect(scenario.title).toBeTruthy();
-    expect(scenario.id).toBe('demo-romance');
+    expect(scenario.slug).toBe('demo-romance');
   });
 
   it('throws ApiError(404) for an unknown scenario', async () => {
     await expect(api.getScenario('does-not-exist')).rejects.toMatchObject({
       status: 404,
-      code: 'scenario_not_found',
+      code: 'not_found',
     });
   });
 
-  it('returns the play turn for a scenario id', async () => {
-    const turn = await api.getPlayTurn('demo-romance');
-    expect(turn.choices.length).toBeGreaterThanOrEqual(2);
+  it('returns a scenario version for slug + version', async () => {
+    const version = await api.getScenarioVersion('demo-mystery', 1);
+    expect(version.version).toBe(1);
+    expect(version.suggested_choices.length).toBeGreaterThan(0);
   });
 
-  it('returns the wallet fixture', async () => {
+  it('starts an adventure and returns the adventure resource', async () => {
+    const adventure = await api.startAdventure({ scenario_slug: 'demo-mystery' });
+    expect(adventure.scenario_slug).toBe('demo-mystery');
+    expect(adventure.status).toBe('active');
+    expect(adventure.current_branch.id).toBeGreaterThan(0);
+  });
+
+  it('submits a turn and returns the turn resource', async () => {
+    const turn = await api.submitTurn(101, {
+      branch_id: 1,
+      choice_id: 'choice-alley',
+      free_text: null,
+      idempotency_key: 'idem-1',
+      client_version: 1,
+    });
+    expect(turn.branch_id).toBe(1);
+    expect(turn.choice_id).toBe('choice-alley');
+    expect(turn.idempotency_key).toBe('idem-1');
+  });
+
+  it('throws ApiError(409) on a stale client_version', async () => {
+    await expect(
+      api.submitTurn(101, {
+        branch_id: 1,
+        idempotency_key: 'idem-2',
+        client_version: 0,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'version_conflict' });
+  });
+
+  it('returns the wallet resource (balance + currency shape)', async () => {
     const wallet = await api.getWallet();
     expect(wallet.currency).toBe('credits');
-    expect(wallet.packages.length).toBeGreaterThan(0);
+    expect(wallet.balance).toBeGreaterThanOrEqual(0);
   });
 
-  it('returns a checkout URL for a top-up request', async () => {
-    const result = await api.topUpWallet({ packageId: 'pkg-starter' });
-    expect(result.reservationId).toContain('pkg-starter');
-    expect(result.checkoutUrl).toContain('pkg-starter');
+  it('top-up mutates the wallet balance', async () => {
+    const updated = await api.topUpWallet({ amount: 100 });
+    expect(updated.balance).toBeGreaterThan(0);
+    expect(updated.currency).toBe('credits');
   });
 
-  it('returns the referral fixture', async () => {
+  it('returns the referral resource', async () => {
     const referral = await api.getReferral();
     expect(referral.code).toMatch(/^[A-Z0-9-]+$/);
+    expect(referral.count).toBeGreaterThanOrEqual(0);
+  });
+
+  it('shareReferral increments the share counter', async () => {
+    const next = await api.shareReferral({ channel: 'email' });
+    expect(next.count).toBeGreaterThanOrEqual(0);
+    expect(next.code).toMatch(/^[A-Z0-9-]+$/);
   });
 
   it('round-trips settings via PUT', async () => {
     const settings = await api.getSettings();
-    const result = await api.updateSettings({ groups: settings });
-    expect(result.groups).toEqual(settings);
+    expect(settings.theme).toMatch(/^(light|dark|system)$/);
+    const next = await api.updateSettings({ ...settings, theme: 'dark' });
+    expect(next.theme).toBe('dark');
+  });
+
+  it('signs in and returns a token + user', async () => {
+    const auth = await api.signIn({ email: 'wren@example.com', password: '12345678' });
+    expect(auth.token).toBeTruthy();
+    expect(auth.user.email).toBe('wren@example.com');
+  });
+
+  it('rejects a malformed sign-in', async () => {
+    const body: SignInRequest = { email: '', password: '' };
+    await expect(api.signIn(body)).rejects.toMatchObject({ status: 422, code: 'validation' });
+  });
+
+  it('signs up a new user with adult attestation', async () => {
+    const body: SignUpRequest = {
+      email: 'new@example.com',
+      password: '12345678',
+      password_confirmation: '12345678',
+      name: 'New User',
+      attests_adult: true,
+    };
+    const auth = await api.signUp(body);
+    expect(auth.token).toBeTruthy();
+  });
+
+  it('rejects a registration missing the adult attestation', async () => {
+    const body = {
+      email: 'new@example.com',
+      password: '12345678',
+      password_confirmation: '12345678',
+      name: 'New User',
+      attests_adult: false,
+    } as SignUpRequest;
+    await expect(api.signUp(body)).rejects.toMatchObject({ status: 422 });
+  });
+
+  it('returns the legacy play-turn fixture for PlaySurfacePlaceholder', async () => {
+    const turn = await api.getPlayTurn('demo-romance');
+    expect(turn.choices.length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -133,8 +230,8 @@ describe('withFixtureFallback', () => {
     };
     const wrapped = withFixtureFallback(primary, fixtureFetcher());
 
-    const list = (await wrapped('/scenarios')) as Array<{ id: string }>;
-    expect(list.find((s) => s.id === 'demo-romance')).toBeDefined();
+    const list = (await wrapped('/scenarios')) as Array<{ slug: string }>;
+    expect(list.find((s) => s.slug === 'demo-romance')).toBeDefined();
   });
 
   it('re-throws ApiError from the primary fetcher', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   scenarioKeys,
@@ -8,16 +8,23 @@ import {
   useScenarios,
   usePlayTurn,
 } from './useScenarios';
-import { ApiClientProvider, ApiError } from '@/api-client';
+import {
+  ApiClientProvider,
+  ApiError,
+} from '@/api-client';
 import type { Fetcher } from '@/api-client';
+import { AuthProvider } from '@/auth/AuthContext';
+import { SCENARIO_RESOURCE_FIXTURES, PLAY_FIXTURE } from '@/fixtures/data';
 
 function makeWrapper(fetcher: Fetcher) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return ({ children }: { children: ReactElement }): ReactElement => (
+  return ({ children }: { children: ReactNode }): ReactElement => (
     <QueryClientProvider client={queryClient}>
-      <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+      <AuthProvider>
+        <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
@@ -26,8 +33,7 @@ describe('useScenarios', () => {
   it('returns the live scenario list on success', async () => {
     const fetcher: Fetcher = async (path) => {
       if (path === '/scenarios') {
-        const { SCENARIO_FIXTURES } = await import('@/fixtures/data');
-        return SCENARIO_FIXTURES;
+        return SCENARIO_RESOURCE_FIXTURES;
       }
       return undefined;
     };
@@ -36,7 +42,7 @@ describe('useScenarios', () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.length).toBeGreaterThanOrEqual(4);
-    expect(result.current.data?.find((s) => s.id === 'demo-romance')).toBeDefined();
+    expect(result.current.data?.find((s) => s.slug === 'demo-romance')).toBeDefined();
   });
 
   it('returns an ApiError on failure without throwing', async () => {
@@ -52,15 +58,16 @@ describe('useScenarios', () => {
   it('uses a unique cache key per filter combination', async () => {
     const fetcher: Fetcher = async (path) => {
       if (path.startsWith('/scenarios')) {
-        const { SCENARIO_FIXTURES } = await import('@/fixtures/data');
-        return SCENARIO_FIXTURES;
+        return SCENARIO_RESOURCE_FIXTURES;
       }
       return undefined;
     };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const wrapper = ({ children }: { children: ReactElement }): ReactElement => (
+    const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
       <QueryClientProvider client={queryClient}>
-        <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+        <AuthProvider>
+          <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+        </AuthProvider>
       </QueryClientProvider>
     );
     const first = renderHook(() => useScenarios({ rating: 'mature' }), { wrapper });
@@ -74,11 +81,10 @@ describe('useScenarios', () => {
 });
 
 describe('useScenario', () => {
-  it('fetches a single scenario by id', async () => {
+  it('fetches a single scenario by slug', async () => {
     const fetcher: Fetcher = async (path) => {
       if (path === '/scenarios/demo-romance') {
-        const { SCENARIO_FIXTURES } = await import('@/fixtures/data');
-        return SCENARIO_FIXTURES.find((s) => s.id === 'demo-romance');
+        return SCENARIO_RESOURCE_FIXTURES.find((s) => s.slug === 'demo-romance');
       }
       return undefined;
     };
@@ -89,9 +95,9 @@ describe('useScenario', () => {
     expect(result.current.data?.title).toBeTruthy();
   });
 
-  it('does not run the query when the id is missing', () => {
+  it('does not run the query when the slug is missing', () => {
     const fetcher: Fetcher = async () => {
-      throw new Error('should not be called when id is missing');
+      throw new Error('should not be called when slug is missing');
     };
     const { result } = renderHook(() => useScenario(undefined), {
       wrapper: makeWrapper(fetcher),
@@ -102,10 +108,9 @@ describe('useScenario', () => {
 });
 
 describe('usePlayTurn', () => {
-  it('loads the play turn for the active scenario', async () => {
+  it('loads the play turn for the active scenario (legacy S1 surface)', async () => {
     const fetcher: Fetcher = async (path) => {
       if (path === '/scenarios/demo-romance/play-turn') {
-        const { PLAY_FIXTURE } = await import('@/fixtures/data');
         return PLAY_FIXTURE;
       }
       return undefined;
