@@ -28,6 +28,29 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: false,
+    // Forward `/api/*`, `/health`, `/up`, and Sanctum endpoints to the local
+    // Caddy gateway, which itself routes `/api/*` to the Laravel API. In the
+    // docker-compose stack the gateway is reachable on the host as
+    // `localhost:8088`; this proxy lets `vite dev` make live API calls
+    // without spinning up the container stack.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8088',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://localhost:8088',
+        changeOrigin: true,
+      },
+      '/up': {
+        target: 'http://localhost:8088',
+        changeOrigin: true,
+      },
+      '/sanctum': {
+        target: 'http://localhost:8088',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port: 4173,
