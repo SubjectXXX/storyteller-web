@@ -1,11 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import { useApiClient } from '@/api-client';
-import {
-  ApiError,
-  type SettingsResponse,
-  type SettingsUpdateRequest,
-  type SettingsUpdateResponse,
-} from '@/api-client';
+import { ApiError, type SettingsResponse, type SettingsUpdateRequest } from '@/api-client';
 
 export const settingsKeys = {
   all: ['settings'] as const,
@@ -20,13 +15,13 @@ export function useSettings(): UseQueryResult<SettingsResponse, ApiError> {
   });
 }
 
-export function useUpdateSettings(): UseMutationResult<SettingsUpdateResponse, ApiError, SettingsUpdateRequest> {
+export function useUpdateSettings(): UseMutationResult<SettingsResponse, ApiError, SettingsUpdateRequest> {
   const api = useApiClient();
   const queryClient = useQueryClient();
-  return useMutation<SettingsUpdateResponse, ApiError, SettingsUpdateRequest>({
+  return useMutation<SettingsResponse, ApiError, SettingsUpdateRequest>({
     mutationFn: (body) => api.updateSettings(body),
     onSuccess: (data) => {
-      queryClient.setQueryData(settingsKeys.me(), data.groups);
+      queryClient.setQueryData(settingsKeys.me(), data);
     },
   });
 }

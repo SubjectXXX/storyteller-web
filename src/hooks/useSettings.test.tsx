@@ -1,32 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { settingsKeys, useSettings, useUpdateSettings } from './useSettings';
-import { ApiClientProvider, ApiError } from '@/api-client';
+import {
+  ApiClientProvider,
+  ApiError,
+} from '@/api-client';
 import type { Fetcher } from '@/api-client';
-import { SETTINGS_FIXTURE } from '@/fixtures/data';
+import { AuthProvider } from '@/auth/AuthContext';
+import { SETTINGS_RESOURCE_FIXTURE } from '@/fixtures/data';
 
 function makeWrapper(fetcher: Fetcher) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return ({ children }: { children: ReactElement }): ReactElement => (
+  return ({ children }: { children: ReactNode }): ReactElement => (
     <QueryClientProvider client={queryClient}>
-      <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+      <AuthProvider>
+        <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
 
 describe('useSettings', () => {
-  it('returns the settings groups on success', async () => {
-    const fetcher: Fetcher = async () => {
-      const { SETTINGS_FIXTURE } = await import('@/fixtures/data');
-      return SETTINGS_FIXTURE;
-    };
+  it('returns the settings resource on success', async () => {
+    const fetcher: Fetcher = async () => SETTINGS_RESOURCE_FIXTURE;
     const { result } = renderHook(() => useSettings(), { wrapper: makeWrapper(fetcher) });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.length).toBe(3);
+    expect(result.current.data?.theme).toMatch(/^(light|dark|system)$/);
   });
 
   it('surfaces the API error', async () => {
@@ -46,27 +49,31 @@ describe('useUpdateSettings', () => {
       const method = options.method ?? 'GET';
       calls.push({ method, path, body: options.body });
       if (method === 'GET') {
-        const { SETTINGS_FIXTURE } = await import('@/fixtures/data');
-        return SETTINGS_FIXTURE;
+        return SETTINGS_RESOURCE_FIXTURE;
       }
-      return { groups: options.body };
+      return { ...SETTINGS_RESOURCE_FIXTURE, ...((options.body ?? {}) as Partial<typeof SETTINGS_RESOURCE_FIXTURE>) };
     };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const wrapper = ({ children }: { children: ReactElement }): ReactElement => (
+    const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
       <QueryClientProvider client={queryClient}>
-        <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+        <AuthProvider>
+          <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+        </AuthProvider>
       </QueryClientProvider>
     );
 
     const { result } = renderHook(() => useUpdateSettings(), { wrapper });
     act(() => {
-      result.current.mutate({ groups: SETTINGS_FIXTURE });
+      result.current.mutate({ theme: 'dark' });
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const putCall = calls.find((c) => c.method === 'PUT' && c.path === '/me/settings');
     expect(putCall).toBeDefined();
-    expect(queryClient.getQueryData(settingsKeys.me())).toBeDefined();
+    const cached = queryClient.getQueryData(settingsKeys.me()) as
+      | { theme: string }
+      | undefined;
+    expect(cached?.theme).toBe('dark');
   });
 
   it('surfaces the API error when the PUT fails', async () => {
@@ -74,12 +81,11 @@ describe('useUpdateSettings', () => {
       if ((options.method ?? 'GET') === 'PUT') {
         throw new ApiError(422, { message: 'Validation failed', code: 'invalid_payload' });
       }
-      const { SETTINGS_FIXTURE } = await import('@/fixtures/data');
-      return SETTINGS_FIXTURE;
+      return SETTINGS_RESOURCE_FIXTURE;
     };
     const { result } = renderHook(() => useUpdateSettings(), { wrapper: makeWrapper(fetcher) });
     act(() => {
-      result.current.mutate({ groups: SETTINGS_FIXTURE });
+      result.current.mutate({ theme: 'dark' });
     });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect((result.current.error as ApiError).code).toBe('invalid_payload');

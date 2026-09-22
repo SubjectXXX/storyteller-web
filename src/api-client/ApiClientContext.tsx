@@ -1,7 +1,6 @@
-import { createContext, useContext, type ReactElement, type ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { createApi, liveFetcher, withFixtureFallback, type ApiClient, type Fetcher } from './openapi';
-
-const ApiClientContext = createContext<ApiClient | null>(null);
+import { ApiClientContext } from './context';
 
 interface ApiClientProviderProps {
   readonly children: ReactNode;
@@ -12,7 +11,7 @@ interface ApiClientProviderProps {
    * fetcher via the `fetcher` prop.
    */
   readonly fetcher?: Fetcher;
-  readonly authToken?: string;
+  readonly authToken?: string | null;
 }
 
 export function ApiClientProvider({
@@ -20,19 +19,13 @@ export function ApiClientProvider({
   fetcher,
   authToken,
 }: ApiClientProviderProps): ReactElement {
-  const client = createApi(fetcher ?? defaultFetcher(authToken));
+  const client = createApi(fetcher ?? defaultFetcher(authToken ?? undefined));
   return <ApiClientContext.Provider value={client}>{children}</ApiClientContext.Provider>;
-}
-
-export function useApiClient(): ApiClient {
-  const client = useContext(ApiClientContext);
-  if (!client) {
-    throw new Error('useApiClient must be called inside <ApiClientProvider>');
-  }
-  return client;
 }
 
 function defaultFetcher(authToken?: string): Fetcher {
   const live = liveFetcher('/api', authToken);
   return withFixtureFallback(live);
 }
+
+export type { ApiClient };

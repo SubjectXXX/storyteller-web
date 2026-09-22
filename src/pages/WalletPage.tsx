@@ -4,33 +4,30 @@ import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
 import { useTopUpWallet, useWallet } from '@/hooks';
-import { WALLET_FIXTURE, type WalletFixture } from '@/fixtures/data';
+import { WALLET_RESOURCE_FIXTURE, type WalletResource } from '@/fixtures/data';
+
+const TOP_UP_PACKAGES: ReadonlyArray<{
+  readonly id: string;
+  readonly name: string;
+  readonly amount: number;
+  readonly bonus: number;
+}> = [
+  { id: 'pkg-starter', name: 'Starter Pack', amount: 100, bonus: 0 },
+  { id: 'pkg-explorer', name: 'Explorer Pack', amount: 500, bonus: 10 },
+  { id: 'pkg-vault', name: 'Vault Pack', amount: 2400, bonus: 15 },
+];
 
 export default function WalletPage(): ReactElement {
-  // S2-T01 contract: `GET /api/wallet` and `POST /api/wallet/top-up`.
   const walletQuery = useWallet();
   const topUpMutation = useTopUpWallet();
 
-  // The fetcher wraps a fixture fallback so the page is never empty during
-  // dev when the API container is offline.
-  const wallet: WalletFixture = walletQuery.data ?? WALLET_FIXTURE;
+  const wallet: WalletResource = walletQuery.data ?? WALLET_RESOURCE_FIXTURE;
 
-  const totalCreditsWithBonus = (base: number, bonusPercent: number) =>
-    base + Math.round((base * bonusPercent) / 100);
-
-  const handleBuy = async (packageId: string) => {
+  const handleBuy = async (pkg: { readonly id: string; readonly amount: number }) => {
     try {
-      const result = await topUpMutation.mutateAsync({ packageId });
-      // Real flow: navigate to the checkout URL returned by the server.
-      // We don't actually redirect here (no router hook needed yet), but
-      // expose the URL so tests can assert on it.
-      if (typeof window !== 'undefined' && result.checkoutUrl) {
-        // eslint-disable-next-line no-console -- intentional dev signal
-        console.info('[storyteller/web] top-up checkout', result.checkoutUrl);
-      }
+      await topUpMutation.mutateAsync({ package_id: pkg.id, amount: pkg.amount });
     } catch (err) {
       // The mutation's error state is already surfaced via `topUpMutation.error`.
-      // We log here so dev tools surface it without forcing a UI dialog.
       // eslint-disable-next-line no-console -- intentional dev signal
       console.warn('[storyteller/web] top-up failed', err);
     }
@@ -41,7 +38,7 @@ export default function WalletPage(): ReactElement {
       <PageHeader
         eyebrow="Wallet"
         title="Credits & packages"
-        description="Every purchase posts through the verified payment webhook, not the browser return URL. The reservations column is the live count of in-flight purchases."
+        description="Every purchase posts through the verified payment webhook, not the browser return URL. Local-dev top-ups add credits immediately for testing the S2 flow."
       />
 
       {walletQuery.isLoading ? (
@@ -67,37 +64,36 @@ export default function WalletPage(): ReactElement {
               gap: 'var(--space-2)',
             }}
           >
-            <span style={{ color: 'var(--color-foreground-subtle)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>
+            <span
+              style={{
+                color: 'var(--color-foreground-subtle)',
+                fontSize: 'var(--text-xs)',
+                textTransform: 'uppercase',
+              }}
+            >
               Balance
             </span>
-            <p style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-4xl)', fontWeight: 'var(--weight-semibold)', margin: 0 }}>
-              {wallet.balanceCredits}
-              <span style={{ fontSize: 'var(--text-md)', color: 'var(--color-foreground-muted)', marginLeft: 'var(--space-2)' }}>
-                credits
+            <p
+              style={{
+                fontFamily: 'var(--font-serif)',
+                fontSize: 'var(--text-4xl)',
+                fontWeight: 'var(--weight-semibold)',
+                margin: 0,
+              }}
+            >
+              {wallet.balance}
+              <span
+                style={{
+                  fontSize: 'var(--text-md)',
+                  color: 'var(--color-foreground-muted)',
+                  marginLeft: 'var(--space-2)',
+                }}
+              >
+                {wallet.currency}
               </span>
             </p>
             <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-              {wallet.pendingReservations} reservation in flight
-            </span>
-          </article>
-
-          <article
-            style={{
-              padding: 'var(--space-5)',
-              background: 'var(--color-surface-muted)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-2)',
-            }}
-          >
-            <span style={{ color: 'var(--color-foreground-subtle)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>
-              Tier
-            </span>
-            <p style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-2xl)', margin: 0 }}>Wayfinder</p>
-            <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-              100 credits to next tier · monthly bonus +5%
+              Updated {new Date(wallet.updated_at).toLocaleString()}
             </span>
           </article>
         </section>
@@ -105,12 +101,16 @@ export default function WalletPage(): ReactElement {
 
       <h2
         id="packages"
-        style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', marginBottom: 'var(--space-3)' }}
+        style={{
+          fontFamily: 'var(--font-serif)',
+          fontSize: 'var(--text-xl)',
+          marginBottom: 'var(--space-3)',
+        }}
       >
         Credit packages
       </h2>
 
-      {topUpMutation.error ? (
+      {topUpMutation.error && (
         <p
           role="alert"
           style={{
@@ -124,7 +124,7 @@ export default function WalletPage(): ReactElement {
         >
           Top-up failed: {topUpMutation.error.message}
         </p>
-      ) : null}
+      )}
 
       <ul
         aria-labelledby="packages"
@@ -136,7 +136,7 @@ export default function WalletPage(): ReactElement {
           margin: 0,
         }}
       >
-        {wallet.packages.map((pkg) => (
+        {TOP_UP_PACKAGES.map((pkg) => (
           <li
             key={pkg.id}
             style={{
@@ -148,37 +148,34 @@ export default function WalletPage(): ReactElement {
               gridTemplateColumns: '1fr auto',
               gap: 'var(--space-4)',
               alignItems: 'center',
-              opacity: pkg.eligible ? 1 : 0.7,
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-              <strong style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)' }}>{pkg.name}</strong>
+              <strong style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)' }}>
+                {pkg.name}
+              </strong>
               <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-                {totalCreditsWithBonus(pkg.baseCredits, pkg.bonusPercent)} credits
-                {pkg.bonusPercent > 0 && (
+                {pkg.amount + Math.round((pkg.amount * pkg.bonus) / 100)} credits
+                {pkg.bonus > 0 && (
                   <em style={{ marginLeft: 'var(--space-2)', color: 'var(--color-success)' }}>
-                    +{pkg.bonusPercent}% bonus
+                    +{pkg.bonus}% bonus
                   </em>
                 )}
               </span>
-              {!pkg.eligible && pkg.reason && (
-                <Pill intent="warning" title={pkg.reason}>
-                  Regional restriction
-                </Pill>
-              )}
+              <Pill intent="muted" title="Local-dev top-up">
+                Local top-up
+              </Pill>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-foreground-muted)' }}>
-                {pkg.priceLabel}
-              </span>
-              <Button
-                intent={pkg.eligible ? 'primary' : 'secondary'}
-                disabled={!pkg.eligible || topUpMutation.isPending}
-                onClick={() => void handleBuy(pkg.id)}
-              >
-                {pkg.eligible ? topUpMutation.isPending ? 'Reserving…' : 'Buy' : 'Unavailable'}
-              </Button>
-            </div>
+            <Button
+              intent="primary"
+              disabled={topUpMutation.isPending}
+              onClick={() => void handleBuy(pkg)}
+              aria-label={`Buy ${pkg.name}`}
+            >
+              {topUpMutation.isPending && topUpMutation.variables?.package_id === pkg.id
+                ? 'Adding…'
+                : 'Buy'}
+            </Button>
           </li>
         ))}
       </ul>

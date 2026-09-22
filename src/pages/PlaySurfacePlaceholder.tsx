@@ -8,6 +8,13 @@ import { LoadingPanel } from '@/components/LoadingPanel';
 import { usePlayTurn, useScenario } from '@/hooks';
 import { PLAY_FIXTURE, type ChoiceFixture } from '@/fixtures/data';
 
+// TODO(S2-T01): The full timeline now lives on `/api/adventures/:id` (see
+// `AdventurePage`). Remove this file once the route map no longer falls back
+// to `/play/:adventureId` and the redirect logic in `router/index.tsx`
+// exclusively sends players to `/adventures/:id`. The placeholder remains so
+// unknown adventure IDs (legacy deep links) still render something readable
+// while the S2 cutover is in flight.
+
 const CHOICE_INTENT: Record<ChoiceFixture['tone'], 'primary' | 'secondary' | 'ghost'> = {
   bold: 'primary',
   cautious: 'secondary',
@@ -17,9 +24,10 @@ const CHOICE_INTENT: Record<ChoiceFixture['tone'], 'primary' | 'secondary' | 'gh
 export default function PlaySurfacePlaceholder(): ReactElement {
   const { adventureId } = useParams<{ adventureId?: string }>();
 
-  // S2-T01 contract: `/api/scenarios/:id` and `/api/scenarios/:id/play-turn`.
+  // Legacy S1 contract: `/api/scenarios/:id` and `/api/scenarios/:id/play-turn`.
   // The api-client falls back to fixtures when the API is unreachable so the
   // placeholder keeps working in dev.
+  // TODO(S2-T01): replace with `/api/adventures/:id` once the cutover lands.
   const scenarioQuery = useScenario(adventureId);
   const turnQuery = usePlayTurn(adventureId);
 
