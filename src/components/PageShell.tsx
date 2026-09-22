@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactElement, ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { TopNav } from '@/components/TopNav';
 
 interface PageShellProps {
@@ -35,10 +35,8 @@ export function PageShell({ children }: PageShellProps): ReactElement {
           borderTop: '1px solid var(--color-border)',
         }}
       >
-        Storyteller \u00b7 Lantern &amp; Ink \u00b7 Stage S1 fixture shell
+        Storyteller · Lantern & Ink · Stage S1 fixture shell
       </footer>
     </div>
   );
 }
-
-void {} as CSSProperties;
