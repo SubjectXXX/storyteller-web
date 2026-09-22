@@ -1,46 +1,66 @@
-import type { ReactElement } from "react";
+import type { ReactElement } from 'react';
 import { Link } from 'react-router';
+import { Button } from '@/ui/Button';
+import { PageHeader } from '@/ui/PageHeader';
+import { SCENARIO_FIXTURES } from '@/fixtures/data';
 
 export default function HomePage(): ReactElement {
+  const featured = SCENARIO_FIXTURES[0];
   return (
-    <section aria-labelledby="welcome">
-      <h1 id="welcome" style={{ fontSize: 'var(--text-3xl)', marginBottom: 'var(--space-4)' }}>
-        Welcome, traveler
-      </h1>
-      <p style={{ color: 'var(--color-foreground-muted)', maxWidth: 560 }}>
-        This is the Stage S0 fixture. Pick a scenario to read through its
-        synopsis, or jump straight into play to see the surfaces we'll fill
-        out in S1.
-      </p>
-      <ul style={{ display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-6)', flexWrap: 'wrap' }}>
-        <li>
-          <Link
-            to="/scenarios"
+    <div>
+      <PageHeader
+        eyebrow="Stage 1 fixture shell"
+        title="Welcome, traveler"
+        description="Pick a scenario to read through its synopsis, or jump straight into play to walk through the surfaces we are polishing for S1."
+        actions={
+          <>
+            <Link to="/scenarios">
+              <Button intent="primary">Browse scenarios</Button>
+            </Link>
+            <Link to="/play">
+              <Button intent="secondary">Open play surface</Button>
+            </Link>
+          </>
+        }
+      />
+
+      <section aria-labelledby="featured" style={{ display: 'grid', gap: 'var(--space-4)' }}>
+        <h2 id="featured" style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)' }}>
+          Featured this week
+        </h2>
+        <article
+          style={{
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--space-4) var(--space-5)',
+            background: 'var(--color-surface)',
+            display: 'grid',
+            gridTemplateColumns: 'minmax(160px, 200px) 1fr',
+            gap: 'var(--space-5)',
+          }}
+        >
+          <div
+            aria-hidden
             style={{
-              display: 'inline-flex',
-              padding: 'var(--space-2) var(--space-4)',
-              background: 'var(--color-primary)',
-              color: 'var(--color-primary-foreground)',
+              height: 160,
               borderRadius: 'var(--radius-md)',
+              background: featured.coverAccent,
             }}
-          >
-            Browse scenarios
-          </Link>
-        </li>
-        <li>
-          <Link
-            to="/play"
-            style={{
-              display: 'inline-flex',
-              padding: 'var(--space-2) var(--space-4)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-            }}
-          >
-            Open play surface
-          </Link>
-        </li>
-      </ul>
-    </section>
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)' }}>{featured.title}</h3>
+            <p style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
+              by {featured.author} \u00b7 {featured.chapters} chapters \u00b7 {featured.durationMinutes} min
+            </p>
+            <p className="prose" style={{ margin: 0 }}>{featured.synopsis}</p>
+            <div>
+              <Link to={`/scenarios#${featured.id}`}>
+                <Button intent="ghost">View scenario</Button>
+              </Link>
+            </div>
+          </div>
+        </article>
+      </section>
+    </div>
   );
 }

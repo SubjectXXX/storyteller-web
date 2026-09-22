@@ -1,33 +1,21 @@
-import type { ReactElement } from "react";
+import type { ReactElement } from 'react';
 import { Link } from 'react-router';
+import { EmptyState } from '@/ui/EmptyState';
+import { Button } from '@/ui/Button';
 
 export default function NotFoundPage(): ReactElement {
   return (
-    <section
-      aria-labelledby="not-found"
-      style={{
-        textAlign: 'center',
-        padding: 'var(--space-12)',
-        color: 'var(--color-foreground-muted)',
-      }}
-    >
-      <h1 id="not-found" style={{ fontSize: 'var(--text-3xl)', marginBottom: 'var(--space-3)' }}>
-        404 — page not found
-      </h1>
-      <p>The route you tried does not exist in this build.</p>
-      <Link
-        to="/"
-        style={{
-          marginTop: 'var(--space-4)',
-          display: 'inline-flex',
-          padding: 'var(--space-2) var(--space-4)',
-          background: 'var(--color-primary)',
-          color: 'var(--color-primary-foreground)',
-          borderRadius: 'var(--radius-md)',
-        }}
-      >
-        Return home
-      </Link>
-    </section>
+    <div style={{ padding: 'var(--space-8)', display: 'flex', justifyContent: 'center' }}>
+      <EmptyState
+        title="404 \u2014 page not found"
+        description="The route you tried does not exist in this build. Return home to pick a scenario."
+        icon={<span aria-hidden>{'\u{1F50D}'}</span>}
+        action={
+          <Link to="/">
+            <Button intent="primary">Return home</Button>
+          </Link>
+        }
+      />
+    </div>
   );
 }
