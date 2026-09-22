@@ -5,7 +5,11 @@ import { PageHeader } from '@/ui/PageHeader';
 import { SCENARIO_FIXTURES } from '@/fixtures/data';
 
 export default function HomePage(): ReactElement {
-  const featured = SCENARIO_FIXTURES[0];
+  // The fixtures module guarantees a non-empty array (data.test.ts pins it).
+  // The `!` is a deliberate assertion: the featured scenario is a
+  // copy-driven affordance and we want a loud runtime error if the
+  // fixture ever ships empty.
+  const featured = SCENARIO_FIXTURES[0]!;
   return (
     <div>
       <PageHeader
@@ -50,7 +54,7 @@ export default function HomePage(): ReactElement {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
             <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)' }}>{featured.title}</h3>
             <p style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-              by {featured.author} \u00b7 {featured.chapters} chapters \u00b7 {featured.durationMinutes} min
+              by {featured.author} · {featured.chapters} chapters · {featured.durationMinutes} min
             </p>
             <p className="prose" style={{ margin: 0 }}>{featured.synopsis}</p>
             <div>
