@@ -8,9 +8,11 @@ export interface EmptyStateProps {
 }
 
 export function EmptyState({ title, description, action, icon }: EmptyStateProps): ReactElement {
+  // Round-8 per Stitch roundness (DESIGN.md §Geometry). Matches Card so empty
+  // placeholders don't read as a different elevation family than populated cards.
   const wrap: CSSProperties = {
     border: '1px dashed var(--color-border)',
-    borderRadius: 'var(--radius-lg)',
+    borderRadius: 'var(--radius-md)',
     padding: 'var(--space-8)',
     display: 'flex',
     flexDirection: 'column',
