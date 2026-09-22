@@ -219,3 +219,226 @@ export const SETTINGS_FIXTURE: ReadonlyArray<SettingGroupFixture> = [
 export function findScenario(id: string): ScenarioFixture | undefined {
   return SCENARIO_FIXTURES.find((s) => s.id === id);
 }
+
+// ---------------------------------------------------------------------------
+// S2 vertical slice fixtures.
+//
+// The SPA still renders in offline/dev mode using these fixtures, so they
+// MUST mirror the API contract documented at `docs/api/openapi.yaml`. The
+// shapes diverge from the legacy S1 fixtures (e.g. `ScenarioResource` now
+// has `slug` + `latest_version` instead of `id`; `WalletResource` uses
+// `balance` + `currency`; etc.) so we define a parallel set of fixtures
+// rather than mutating the S1 ones.
+// ---------------------------------------------------------------------------
+
+export interface UserResource {
+  readonly id: number;
+  readonly name: string;
+  readonly email: string;
+  readonly is_admin: boolean;
+  readonly attests_adult: boolean;
+  readonly email_verified: boolean;
+  readonly locale: string;
+  readonly created_at: string;
+}
+
+export interface AuthTokenResource {
+  readonly token: string;
+  readonly user: UserResource;
+}
+
+export const USER_FIXTURE: UserResource = {
+  id: 1,
+  name: 'Wren Avery',
+  email: 'wren@example.com',
+  is_admin: false,
+  attests_adult: true,
+  email_verified: true,
+  locale: 'en',
+  created_at: '2026-09-01T10:00:00Z',
+};
+
+export const AUTH_FIXTURE: AuthTokenResource = {
+  token: 'fixture-token-1234|abcd',
+  user: USER_FIXTURE,
+};
+
+export interface ScenarioResource {
+  readonly id: number;
+  readonly slug: string;
+  readonly title: string;
+  readonly blurb: string;
+  readonly cover_url: string | null;
+  readonly tags: ReadonlyArray<string>;
+  readonly is_published: boolean;
+  readonly is_featured: boolean;
+  readonly latest_version: number;
+  readonly length_estimate_minutes: number | null;
+  readonly created_at: string;
+}
+
+export const SCENARIO_RESOURCE_FIXTURES: ReadonlyArray<ScenarioResource> = SCENARIO_FIXTURES.map(
+  (s, idx): ScenarioResource => ({
+    id: idx + 1,
+    slug: s.id,
+    title: s.title,
+    blurb: s.synopsis,
+    cover_url: null,
+    tags: s.moods,
+    is_published: true,
+    is_featured: idx === 0,
+    latest_version: 1,
+    length_estimate_minutes: s.durationMinutes,
+    created_at: '2026-09-01T10:00:00Z',
+  }),
+);
+
+export interface SuggestedChoice {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string | null;
+}
+
+export interface ScenarioVersionResource {
+  readonly version: number;
+  readonly manifest: {
+    readonly title: string;
+    readonly locale: string;
+    readonly length_estimate_minutes: number | null;
+    readonly content_warnings: ReadonlyArray<string>;
+  };
+  readonly starting_state: Readonly<Record<string, unknown>>;
+  readonly suggested_choices: ReadonlyArray<SuggestedChoice>;
+}
+
+export const SCENARIO_VERSION_FIXTURE: ScenarioVersionResource = {
+  version: 1,
+  manifest: {
+    title: 'The Cartographer\u2019s Last Letter',
+    locale: 'en',
+    length_estimate_minutes: 75,
+    content_warnings: [],
+  },
+  starting_state: { location: 'archive' },
+  suggested_choices: PLAY_FIXTURE.choices.map((c) => ({ id: c.id, label: c.label, description: null })),
+};
+
+export type AdventureStatus = 'active' | 'completed' | 'abandoned';
+
+export interface BranchResource {
+  readonly id: number;
+  readonly name: string;
+  readonly depth: number;
+  readonly version: number;
+  readonly parent_branch_id: number | null;
+  readonly parent_turn_id: number | null;
+  readonly state: Readonly<Record<string, unknown>>;
+}
+
+export interface AdventureResource {
+  readonly id: number;
+  readonly scenario_id: number;
+  readonly scenario_slug: string;
+  readonly scenario_version: number;
+  readonly title: string;
+  readonly status: AdventureStatus;
+  readonly current_branch: BranchResource;
+  readonly last_played_at: string | null;
+  readonly created_at: string;
+}
+
+export const ADVENTURE_FIXTURE: AdventureResource = {
+  id: 101,
+  scenario_id: 1,
+  scenario_slug: 'demo-mystery',
+  scenario_version: 1,
+  title: 'The Cartographer\u2019s Last Letter',
+  status: 'active',
+  current_branch: {
+    id: 1,
+    name: 'main',
+    depth: 0,
+    version: 1,
+    parent_branch_id: null,
+    parent_turn_id: null,
+    state: { location: 'archive' },
+  },
+  last_played_at: '2026-09-22T18:00:00Z',
+  created_at: '2026-09-22T17:00:00Z',
+};
+
+export const ADVENTURE_LIST_FIXTURE: ReadonlyArray<AdventureResource> = [ADVENTURE_FIXTURE];
+
+export interface TurnResource {
+  readonly id: number;
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly parent_turn_id: number | null;
+  readonly sequence_number: number;
+  readonly choice_id: string | null;
+  readonly free_text: string | null;
+  readonly narration: string;
+  readonly suggested_choices: ReadonlyArray<SuggestedChoice>;
+  readonly state_after: Readonly<Record<string, unknown>>;
+  readonly idempotency_key: string;
+  readonly created_at: string;
+}
+
+export const TURN_FIXTURE: TurnResource = {
+  id: 1,
+  adventure_id: 101,
+  branch_id: 1,
+  parent_turn_id: null,
+  sequence_number: 1,
+  choice_id: null,
+  free_text: null,
+  narration: PLAY_FIXTURE.narrative,
+  suggested_choices: SCENARIO_VERSION_FIXTURE.suggested_choices,
+  state_after: { location: 'archive' },
+  idempotency_key: '00000000-0000-0000-0000-000000000001',
+  created_at: '2026-09-22T17:01:00Z',
+};
+
+export interface WalletResource {
+  readonly balance: number;
+  readonly currency: string;
+  readonly updated_at: string;
+}
+
+export const WALLET_RESOURCE_FIXTURE: WalletResource = {
+  balance: 12,
+  currency: 'credits',
+  updated_at: '2026-09-22T17:00:00Z',
+};
+
+export interface ReferralResource {
+  readonly code: string;
+  readonly count: number;
+  readonly rewards_earned: number;
+  readonly updated_at: string;
+}
+
+export const REFERRAL_RESOURCE_FIXTURE: ReferralResource = {
+  code: 'WANDER-7821',
+  count: 2,
+  rewards_earned: 2,
+  updated_at: '2026-09-22T17:00:00Z',
+};
+
+export interface SettingsResource {
+  readonly theme: 'light' | 'dark' | 'system';
+  readonly font_size: 'sm' | 'md' | 'lg';
+  readonly reduced_motion: boolean;
+  readonly typewriter_mode: boolean;
+  readonly content_warnings: ReadonlyArray<string>;
+  readonly updated_at: string;
+}
+
+export const SETTINGS_RESOURCE_FIXTURE: SettingsResource = {
+  theme: 'system',
+  font_size: 'md',
+  reduced_motion: false,
+  typewriter_mode: true,
+  content_warnings: [],
+  updated_at: '2026-09-22T17:00:00Z',
+};
