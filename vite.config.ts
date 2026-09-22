@@ -12,6 +12,13 @@ import { fileURLToPath, URL } from 'node:url';
 // satisfy the env-specific overlay. The runtime behaviour of @vitejs/plugin-react
 // is identical against both builds.
 export default defineConfig({
+  // Vite emits asset URLs with this prefix so the bundled
+  // <script src="/web/assets/..."> + <link href="/web/assets/...">
+  // resolve against the gateway, which strips /web via the
+  // handle_path /web/* Caddy route before forwarding to this
+  // container. The player SPA itself is mounted at /web and
+  // reached via http://localhost:8088/web.
+  base: '/web/',
   plugins: [react({})] as any,
   resolve: {
     alias: {
