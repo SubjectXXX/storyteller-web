@@ -29,11 +29,15 @@ export function Card({
   tone = 'default',
   padding = 'md',
 }: CardProps): ReactElement {
+  // Stitch "Lantern & Ink" roundness is ROUND_EIGHT (design/stitch/DESIGN.md
+  // §Geometry, packages/design-system/src/tokens.css --radius-md: 8px).
+  // --radius-lg (12px) is reserved for elevated surfaces; Card must read as
+  // the canonical 8px card per the Stitch round-8 direction.
   const containerStyle: CSSProperties = {
     ...toneStyles[tone],
     borderWidth: 1,
     borderStyle: 'solid',
-    borderRadius: 'var(--radius-lg)',
+    borderRadius: 'var(--radius-md)',
     padding: paddingStyles[padding],
     display: 'flex',
     flexDirection: 'column',

@@ -31,7 +31,7 @@ export default function ReferralsPage(): ReactElement {
           padding: 'var(--space-5)',
           background: 'var(--color-surface)',
           border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-lg)',
+          borderRadius: 'var(--radius-md)',
           display: 'grid',
           gap: 'var(--space-4)',
         }}

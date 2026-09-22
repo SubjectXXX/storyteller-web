@@ -54,7 +54,7 @@ export default function PlaySurfacePlaceholder(): ReactElement {
         style={{
           background: 'var(--color-surface)',
           border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-lg)',
+          borderRadius: 'var(--radius-md)',
           padding: 'var(--space-5) var(--space-6)',
           display: 'flex',
           flexDirection: 'column',

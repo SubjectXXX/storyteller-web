@@ -82,7 +82,7 @@ export default function ScenarioLibraryPage(): ReactElement {
           style={{
             padding: 'var(--space-6)',
             border: '1px dashed var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
+            borderRadius: 'var(--radius-md)',
             textAlign: 'center',
             color: 'var(--color-foreground-muted)',
           }}
@@ -176,7 +176,7 @@ const inputStyle: CSSProperties = {
 const cardStyle: CSSProperties = {
   background: 'var(--color-surface)',
   border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-lg)',
+  borderRadius: 'var(--radius-md)',
   padding: 'var(--space-3)',
   display: 'flex',
   flexDirection: 'column',
