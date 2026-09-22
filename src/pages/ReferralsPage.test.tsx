@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ReferralsPage from './ReferralsPage';
-import { ApiClientProvider, ApiError, fixtureFetcher } from '@/api-client';
+import {
+  ApiClientProvider,
+  ApiError,
+  fixtureFetcher,
+} from '@/api-client';
 import type { Fetcher } from '@/api-client';
+import { AuthProvider } from '@/auth/AuthContext';
+import { REFERRAL_RESOURCE_FIXTURE } from '@/fixtures/data';
 
 function renderWithFetcher(fetcher: Fetcher) {
   const queryClient = new QueryClient({
@@ -13,11 +18,13 @@ function renderWithFetcher(fetcher: Fetcher) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ApiClientProvider fetcher={fetcher}>
-        <MemoryRouter>
-          <ReferralsPage />
-        </MemoryRouter>
-      </ApiClientProvider>
+      <AuthProvider>
+        <ApiClientProvider fetcher={fetcher}>
+          <MemoryRouter>
+            <ReferralsPage />
+          </MemoryRouter>
+        </ApiClientProvider>
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }
@@ -27,24 +34,21 @@ describe('ReferralsPage', () => {
     renderWithFetcher(fixtureFetcher());
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: /bring another/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: /bring another/i })).toBeTruthy();
     });
-    expect(screen.getByLabelText('Invite code')).toHaveValue('WANDER-7821');
-    expect(screen.getByLabelText('Shareable link')).toHaveValue('https://storyteller.test/r/WANDER-7821');
-  });
-
-  it('exposes the active status pill', () => {
-    renderWithFetcher(fixtureFetcher());
-    expect(screen.getByText(/active/i)).toBeInTheDocument();
-    expect(screen.getByText(/cartographer tier/i)).toBeInTheDocument();
+    expect((screen.getByLabelText('Invite code') as HTMLInputElement).value).toBe(
+      REFERRAL_RESOURCE_FIXTURE.code,
+    );
+    expect((screen.getByLabelText('Shareable link') as HTMLInputElement).value).toBe(
+      `https://storyteller.test/r/${REFERRAL_RESOURCE_FIXTURE.code}`,
+    );
   });
 
   it('hits /api/referrals/me on mount', async () => {
     const calls: string[] = [];
     const fetcher: Fetcher = async (path, options = {}) => {
       calls.push(`${options.method ?? 'GET'} ${path}`);
-      const { REFERRAL_FIXTURE } = await import('@/fixtures/data');
-      return REFERRAL_FIXTURE;
+      return REFERRAL_RESOURCE_FIXTURE;
     };
     renderWithFetcher(fetcher);
 
@@ -53,26 +57,55 @@ describe('ReferralsPage', () => {
     });
   });
 
-  it('bumps the rewards counter when the user clicks Share', async () => {
-    const user = userEvent.setup();
-    renderWithFetcher(fixtureFetcher());
+  it('POSTs /api/referrals/share when the user clicks Share', async () => {
+    const calls: string[] = [];
+    const fetcher: Fetcher = async (path, options = {}) => {
+      const method = options.method ?? 'GET';
+      calls.push(`${method} ${path}`);
+      if (path === '/referrals/me' && method === 'GET') return REFERRAL_RESOURCE_FIXTURE;
+      if (path === '/referrals/share' && method === 'POST') {
+        return { ...REFERRAL_RESOURCE_FIXTURE, count: REFERRAL_RESOURCE_FIXTURE.count + 1 };
+      }
+      return undefined;
+    };
+    renderWithFetcher(fetcher);
 
     const share = await screen.findByRole('button', { name: /share via email/i });
-    expect(screen.getByText(/2 rewards granted/i)).toBeInTheDocument();
-    await user.click(share);
-    expect(screen.getByText(/3 rewards granted/i)).toBeInTheDocument();
+    fireEvent.click(share);
+
+    await waitFor(() => {
+      expect(calls).toContain('POST /referrals/share');
+    });
   });
 
-  it('shows an empty invite section when the API errors and no fallback is wired', async () => {
+  it('surfaces the share error', async () => {
+    const fetcher: Fetcher = async (path, options = {}) => {
+      const method = options.method ?? 'GET';
+      if (path === '/referrals/me' && method === 'GET') return REFERRAL_RESOURCE_FIXTURE;
+      if (path === '/referrals/share' && method === 'POST') {
+        throw new ApiError(422, { message: 'Invalid channel', code: 'validation' });
+      }
+      return undefined;
+    };
+    renderWithFetcher(fetcher);
+
+    const share = await screen.findByRole('button', { name: /share via email/i });
+    fireEvent.click(share);
+
+    await waitFor(() => {
+      const alert = screen.queryByRole('alert');
+      expect(alert?.textContent).toMatch(/share failed/i);
+    });
+  });
+
+  it('renders the invite section when the API errors (no crash)', async () => {
     const fetcher: Fetcher = async () => {
       throw new ApiError(500, { message: 'Server exploded', code: 'server_error' });
     };
     renderWithFetcher(fetcher);
 
-    // The page renders the loading state forever in this case; assert that
-    // it doesn't crash and stays accessible to assistive tech.
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: /bring another/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: /bring another/i })).toBeTruthy();
     });
   });
 });

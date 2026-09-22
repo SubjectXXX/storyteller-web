@@ -1,34 +1,51 @@
 import type { CSSProperties, ReactElement, ReactNode } from 'react';
 import { useState } from 'react';
 import { PageHeader } from '@/ui/PageHeader';
-import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
 import { useSettings, useUpdateSettings } from '@/hooks';
 import {
-  SETTINGS_FIXTURE,
-  type SettingGroupFixture,
-  type SettingRowFixture,
+  SETTINGS_RESOURCE_FIXTURE,
+  type SettingsResource,
 } from '@/fixtures/data';
 
+type Theme = SettingsResource['theme'];
+type FontSize = SettingsResource['font_size'];
+
 export default function SettingsPage(): ReactElement {
-  // S2-T01 contract: GET `/api/me/settings` returns the resolved groups;
-  // PUT `/api/me/settings` persists edits. The api-client falls back to
-  // fixtures so the page renders offline.
   const settingsQuery = useSettings();
   const updateSettings = useUpdateSettings();
-  const [draft, setDraft] = useState<ReadonlyArray<SettingGroupFixture> | null>(null);
+  const [draft, setDraft] = useState<SettingsResource | null>(null);
 
-  const groups: ReadonlyArray<SettingGroupFixture> = settingsQuery.data ?? draft ?? SETTINGS_FIXTURE;
+  const current: SettingsResource = settingsQuery.data ?? draft ?? SETTINGS_RESOURCE_FIXTURE;
+  const dirty = draft !== null && draft !== settingsQuery.data;
+
+  const setField = <K extends keyof SettingsResource>(key: K, value: SettingsResource[K]) => {
+    setDraft((prev) => {
+      const base = prev ?? current;
+      return { ...base, [key]: value };
+    });
+  };
 
   const handleSave = async () => {
     if (!draft) return;
     try {
-      await updateSettings.mutateAsync({ groups: draft });
+      const next = await updateSettings.mutateAsync({
+        theme: draft.theme,
+        font_size: draft.font_size,
+        reduced_motion: draft.reduced_motion,
+        typewriter_mode: draft.typewriter_mode,
+        content_warnings: draft.content_warnings,
+      });
+      setDraft(next);
     } catch (err) {
       // eslint-disable-next-line no-console -- intentional dev signal
       console.warn('[storyteller/web] save settings failed', err);
     }
+  };
+
+  const handleReset = () => {
+    setDraft(null);
   };
 
   return (
@@ -36,15 +53,24 @@ export default function SettingsPage(): ReactElement {
       <PageHeader
         eyebrow="Settings"
         title="Preferences & defaults"
-        description="Every group below shows the resolved value with a visible indicator when it inherits from your defaults. Edits persist through PUT /api/me/settings."
+        description="Each toggle below persists via PUT /api/me/settings. Settings are scoped per user — admins override defaults, not your individual choices."
         actions={
-          <Button
-            intent="primary"
-            onClick={() => void handleSave()}
-            disabled={!draft || updateSettings.isPending}
-          >
-            {updateSettings.isPending ? 'Saving…' : 'Save changes'}
-          </Button>
+          <>
+            <Button
+              intent="secondary"
+              onClick={handleReset}
+              disabled={!dirty}
+            >
+              Reset
+            </Button>
+            <Button
+              intent="primary"
+              onClick={() => void handleSave()}
+              disabled={!dirty || updateSettings.isPending}
+            >
+              {updateSettings.isPending ? 'Saving…' : 'Save changes'}
+            </Button>
+          </>
         }
       />
 
@@ -52,7 +78,7 @@ export default function SettingsPage(): ReactElement {
         <LoadingPanel label="Loading settings" intent="inline" />
       ) : (
         <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
-          {updateSettings.error ? (
+          {updateSettings.error && (
             <p
               role="alert"
               style={{
@@ -65,38 +91,78 @@ export default function SettingsPage(): ReactElement {
             >
               Save failed: {updateSettings.error.message}
             </p>
-          ) : null}
-          {groups.map((group) => (
-            <SettingGroup key={group.id} label={group.label}>
-              {group.rows.map((row) => (
-                <SettingRow
-                  key={row.id}
-                  row={row}
-                  onEdit={(next) => {
-                    setDraft((prev) => replaceRow(prev ?? groups, group.id, next));
-                  }}
-                />
-              ))}
-            </SettingGroup>
-          ))}
+          )}
+
+          <SettingGroup label="Reading experience">
+            <Row label="Theme">
+              <select
+                aria-label="Theme"
+                value={current.theme}
+                onChange={(event) => setField('theme', event.target.value as Theme)}
+                style={controlStyle}
+              >
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="system">System</option>
+              </select>
+            </Row>
+            <Row label="Font size">
+              <select
+                aria-label="Font size"
+                value={current.font_size}
+                onChange={(event) => setField('font_size', event.target.value as FontSize)}
+                style={controlStyle}
+              >
+                <option value="sm">Small</option>
+                <option value="md">Medium</option>
+                <option value="lg">Large</option>
+              </select>
+            </Row>
+            <Row label="Typewriter mode">
+              <input
+                type="checkbox"
+                checked={current.typewriter_mode}
+                onChange={(event) => setField('typewriter_mode', event.target.checked)}
+                aria-label="Typewriter mode"
+              />
+            </Row>
+            <Row label="Reduce motion">
+              <input
+                type="checkbox"
+                checked={current.reduced_motion}
+                onChange={(event) => setField('reduced_motion', event.target.checked)}
+                aria-label="Reduce motion"
+              />
+            </Row>
+          </SettingGroup>
+
+          <SettingGroup label="Content warnings">
+            <Row label="Warnings">
+              <input
+                type="text"
+                value={current.content_warnings.join(', ')}
+                onChange={(event) =>
+                  setField(
+                    'content_warnings',
+                    event.target.value
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter((s) => s.length > 0),
+                  )
+                }
+                placeholder="violence, grief"
+                style={controlStyle}
+                aria-label="Content warnings"
+              />
+            </Row>
+            <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-xs)' }}>
+              Comma-separated keywords; the scenario editor merges these with its own defaults.
+            </span>
+          </SettingGroup>
         </div>
       )}
     </div>
   );
-}
-
-function replaceRow(
-  source: ReadonlyArray<SettingGroupFixture>,
-  groupId: string,
-  row: SettingRowFixture,
-): ReadonlyArray<SettingGroupFixture> {
-  return source.map((g) => {
-    if (g.id !== groupId) return g;
-    return {
-      ...g,
-      rows: g.rows.map((r) => (r.id === row.id ? row : r)),
-    };
-  });
 }
 
 function SettingGroup({ label, children }: { label: string; children: ReactNode }): ReactElement {
@@ -117,14 +183,7 @@ function SettingGroup({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-function SettingRow({
-  row,
-  onEdit,
-}: {
-  row: SettingRowFixture;
-  onEdit: (row: SettingRowFixture) => void;
-}): ReactElement {
-  const disabled = row.locked === true;
+function Row({ label, children }: { label: string; children: ReactNode }): ReactElement {
   return (
     <li
       style={{
@@ -138,24 +197,8 @@ function SettingRow({
         flexWrap: 'wrap',
       }}
     >
-      <span style={{ fontWeight: 'var(--weight-medium)' }}>{row.label}</span>
-      <span style={valueRow}>
-        <span style={{ color: 'var(--color-foreground-muted)', fontFamily: 'var(--font-mono)' }}>{row.value}</span>
-        {row.inherited ? (
-          <Pill intent="muted" title="Resolved from your default settings">
-            Inherited
-          </Pill>
-        ) : null}
-        {row.locked ? <Pill intent="warning" title={row.lockedReason ?? 'Locked by the active scenario'}>Locked</Pill> : null}
-        <Button
-          intent="ghost"
-          size="sm"
-          disabled={disabled}
-          onClick={() => onEdit({ ...row, value: `${row.value} · edited` })}
-        >
-          Edit
-        </Button>
-      </span>
+      <span style={{ fontWeight: 'var(--weight-medium)' }}>{label}</span>
+      <span style={valueRow}>{children}</span>
     </li>
   );
 }
@@ -165,4 +208,16 @@ const valueRow: CSSProperties = {
   gap: 'var(--space-2)',
   alignItems: 'center',
   flexWrap: 'wrap',
+};
+
+const controlStyle: CSSProperties = {
+  padding: 'var(--space-2) var(--space-3)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-md)',
+  background: 'var(--color-surface)',
+  color: 'var(--color-foreground)',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--text-base)',
+  minHeight: 'var(--control-touch-min)',
+  minWidth: 160,
 };

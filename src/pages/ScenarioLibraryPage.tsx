@@ -1,45 +1,31 @@
 import type { CSSProperties, ReactElement } from 'react';
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import { useNavigate } from 'react-router';
 import { PageHeader } from '@/ui/PageHeader';
-import { Pill, type PillIntent } from '@/ui/Pill';
+import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
 import { useScenarios } from '@/hooks';
+import { useStartAdventure } from '@/hooks/useAdventures';
 import {
-  SCENARIO_FIXTURES,
-  type ScenarioFixture,
-  type ScenarioMood,
-  type ScenarioRating,
+  ApiError,
+  type ScenarioDetailResponse,
+  type ScenarioListResponse,
+} from '@/api-client';
+import {
+  SCENARIO_RESOURCE_FIXTURES,
+  type ScenarioResource,
 } from '@/fixtures/data';
-import { ApiError } from '@/api-client';
-
-const RATING_LABEL: Record<ScenarioRating, string> = {
-  'all-ages': 'All ages',
-  mature: 'Mature',
-  restricted: 'Restricted',
-};
-
-const MOOD_LABEL: Record<ScenarioMood, string> = {
-  romance: 'Romance',
-  mystery: 'Mystery',
-  hope: 'Hope',
-  conflict: 'Conflict',
-};
-
-const RATING_PILL: Record<ScenarioRating, PillIntent> = {
-  'all-ages': 'success',
-  mature: 'warning',
-  restricted: 'danger',
-};
 
 export default function ScenarioLibraryPage(): ReactElement {
   const [filter, setFilter] = useState('');
-  const [rating, setRating] = useState<'all' | ScenarioRating>('all');
+  const [rating, setRating] = useState<'all' | 'all-ages' | 'mature' | 'restricted'>('all');
+  const navigate = useNavigate();
+  const startAdventure = useStartAdventure();
+  const [startingSlug, setStartingSlug] = useState<string | null>(null);
+  const [errorSlug, setErrorSlug] = useState<string | null>(null);
 
-  // The hook fetches via `/api/scenarios` and the api-client wraps a fixture
-  // fallback so the page still renders offline (S2-T01 will own the contract).
   const queryParams = useMemo(() => {
-    const params: { rating?: ScenarioRating; q?: string } = {};
+    const params: { rating?: 'all-ages' | 'mature' | 'restricted'; q?: string } = {};
     if (rating !== 'all') params.rating = rating;
     if (filter.trim().length > 0) params.q = filter.trim();
     return params;
@@ -48,21 +34,40 @@ export default function ScenarioLibraryPage(): ReactElement {
   const { data, isLoading, error, refetch } = useScenarios(queryParams);
 
   // Fixture fallback path: when the API is unreachable the fetcher returns
-  // the S1 fixture list. We still apply local filtering on the client so the
-  // UX matches what `/api/scenarios?rating=...&q=...` would do server-side.
-  const source: ReadonlyArray<ScenarioFixture> = data ?? SCENARIO_FIXTURES;
+  // the S1 fixture list (mapped to ScenarioResource in openapi.ts). Apply
+  // local filtering for the offline fallback UX so the player still finds
+  // what they searched for.
+  const source: ReadonlyArray<ScenarioResource> = data ?? SCENARIO_RESOURCE_FIXTURES;
   const filtered = useMemo(() => {
     return source.filter((s) => {
-      if (rating !== 'all' && s.rating !== rating) return false;
+      if (rating !== 'all') {
+        if (rating === 'all-ages' && s.tags.includes('mature')) return false;
+        if (rating === 'mature' && !s.tags.includes('mature') && !s.tags.includes('conflict')) return false;
+        if (rating === 'restricted' && !s.tags.includes('conflict')) return false;
+      }
       if (!filter) return true;
       const needle = filter.toLowerCase();
       return (
         s.title.toLowerCase().includes(needle) ||
-        s.author.toLowerCase().includes(needle) ||
-        s.synopsis.toLowerCase().includes(needle)
+        s.blurb.toLowerCase().includes(needle) ||
+        s.tags.some((t) => t.toLowerCase().includes(needle))
       );
     });
   }, [source, filter, rating]);
+
+  const handleStart = async (slug: string) => {
+    setErrorSlug(null);
+    setStartingSlug(slug);
+    try {
+      const adventure = await startAdventure.mutateAsync({ scenario_slug: slug });
+      navigate(`/adventures/${adventure.id}`);
+    } catch (err) {
+      setErrorSlug(slug);
+      setStartingSlug(null);
+      // eslint-disable-next-line no-console -- intentional dev signal
+      console.warn('[storyteller/web] start adventure failed', err);
+    }
+  };
 
   return (
     <div>
@@ -91,11 +96,9 @@ export default function ScenarioLibraryPage(): ReactElement {
             style={inputStyle}
           >
             <option value="all">All ratings</option>
-            {(Object.keys(RATING_LABEL) as ScenarioRating[]).map((r) => (
-              <option key={r} value={r}>
-                {RATING_LABEL[r]}
-              </option>
-            ))}
+            <option value="all-ages">All ages</option>
+            <option value="mature">Mature</option>
+            <option value="restricted">Restricted</option>
           </select>
         </label>
       </div>
@@ -103,11 +106,8 @@ export default function ScenarioLibraryPage(): ReactElement {
       {isLoading ? (
         <LoadingPanel label="Loading scenarios" intent="inline" />
       ) : error && !data ? (
-        // Render the offline banner but keep the fixture fallback list visible
-        // so the player can still pick a scenario. The error banner makes the
-        // degraded state obvious to the developer without blocking the UX.
         <div data-testid="library-error" role="status" aria-live="polite" style={{ marginBottom: 'var(--space-3)' }}>
-          <ApiErrorBanner error={error} onRetry={() => void refetch()} />
+          <ApiErrorBanner error={error as ApiError} onRetry={() => void refetch()} />
         </div>
       ) : null}
 
@@ -135,44 +135,64 @@ export default function ScenarioLibraryPage(): ReactElement {
           }}
         >
           {filtered.map((scenario) => (
-            <li key={scenario.id} id={scenario.id} style={cardStyle}>
-              <ScenarioCover scenario={scenario} />
-              <h2 style={{ fontSize: 'var(--text-lg)', fontFamily: 'var(--font-serif)' }}>{scenario.title}</h2>
-              <p style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>
-                by {scenario.author}
+            <li key={scenario.slug} id={scenario.slug} style={cardStyle}>
+              <ScenarioCover slug={scenario.slug} />
+              <h2 style={{ fontSize: 'var(--text-lg)', fontFamily: 'var(--font-serif)' }}>
+                {scenario.title}
+              </h2>
+              <p
+                style={{
+                  color: 'var(--color-foreground-muted)',
+                  fontSize: 'var(--text-sm)',
+                  margin: 0,
+                }}
+              >
+                v{scenario.latest_version}
+                {scenario.length_estimate_minutes
+                  ? ` · ${scenario.length_estimate_minutes} min`
+                  : ''}
               </p>
-              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-foreground-subtle)', margin: 0 }}>
-                {scenario.chapters} chapters · {scenario.durationMinutes} min
-              </p>
-              <p className="prose" style={{ margin: 0 }}>{scenario.synopsis}</p>
+              <p className="prose" style={{ margin: 0 }}>{scenario.blurb}</p>
               <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
-                <Pill intent={RATING_PILL[scenario.rating]} title={`Rating: ${RATING_LABEL[scenario.rating]}`}>
-                  {RATING_LABEL[scenario.rating]}
-                </Pill>
-                {scenario.moods.map((m) => (
-                  <Pill key={m} intent="muted" title={`Mood: ${MOOD_LABEL[m]}`}>
-                    {MOOD_LABEL[m]}
-                  </Pill>
+                {scenario.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    title={`Tag: ${tag}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 'var(--space-1)',
+                      padding: '2px var(--space-2)',
+                      fontSize: 'var(--text-xs)',
+                      fontWeight: 'var(--weight-medium)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      borderRadius: 'var(--radius-full)',
+                      border: '1px solid var(--color-border)',
+                      background: 'var(--color-surface-muted)',
+                      color: 'var(--color-foreground-muted)',
+                    }}
+                  >
+                    {tag}
+                  </span>
                 ))}
               </div>
-              <Link to={`/play/${scenario.id}`} style={{ marginTop: 'auto' }}>
-                <button
-                  type="button"
-                  style={{
-                    width: '100%',
-                    padding: 'var(--space-2) var(--space-3)',
-                    background: 'var(--color-primary)',
-                    color: 'var(--color-primary-foreground)',
-                    border: '1px solid var(--color-primary)',
-                    borderRadius: 'var(--radius-md)',
-                    fontWeight: 'var(--weight-medium)',
-                    cursor: 'pointer',
-                    minHeight: 'var(--control-touch-min)',
-                  }}
+              {errorSlug === scenario.slug && (
+                <p role="alert" style={errorStyle}>
+                  Could not start this adventure. Sign in or try again.
+                </p>
+              )}
+              <div style={{ marginTop: 'auto' }}>
+                <Button
+                  intent="primary"
+                  onClick={() => void handleStart(scenario.slug)}
+                  disabled={startingSlug === scenario.slug}
+                  aria-label={`Start adventure on ${scenario.title}`}
+                  fullWidth
                 >
-                  Start run
-                </button>
-              </Link>
+                  {startingSlug === scenario.slug ? 'Starting…' : 'Start adventure'}
+                </Button>
+              </div>
             </li>
           ))}
         </ul>
@@ -181,14 +201,15 @@ export default function ScenarioLibraryPage(): ReactElement {
   );
 }
 
-function ScenarioCover({ scenario }: { scenario: ScenarioFixture }): ReactElement {
+function ScenarioCover({ slug }: { slug: string }): ReactElement {
   return (
     <div
       aria-hidden
+      data-testid={`scenario-cover-${slug}`}
       style={{
         height: 132,
         borderRadius: 'var(--radius-md)',
-        background: scenario.coverAccent,
+        background: 'var(--color-storyline-mystery)',
         marginBottom: 'var(--space-2)',
       }}
     />
@@ -252,3 +273,15 @@ const cardStyle: CSSProperties = {
   flexDirection: 'column',
   gap: 'var(--space-2)',
 };
+const errorStyle: CSSProperties = {
+  padding: 'var(--space-2) var(--space-3)',
+  border: '1px solid var(--color-danger)',
+  borderRadius: 'var(--radius-md)',
+  background: 'var(--color-surface-muted)',
+  color: 'var(--color-danger)',
+  fontSize: 'var(--text-xs)',
+  margin: 0,
+};
+
+// Re-export the type aliases that other modules may need for typing fixtures.
+export type { ScenarioDetailResponse, ScenarioListResponse };
