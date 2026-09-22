@@ -104,7 +104,7 @@ function SettingGroup({ label, children }: { label: string; children: ReactNode 
     <fieldset
       style={{
         border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-lg)',
+        borderRadius: 'var(--radius-md)',
         padding: 'var(--space-4) var(--space-5)',
         background: 'var(--color-surface)',
       }}

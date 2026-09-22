@@ -44,7 +44,7 @@ export default function HomePage(): ReactElement {
             style={{
               padding: 'var(--space-6)',
               border: '1px dashed var(--color-border)',
-              borderRadius: 'var(--radius-lg)',
+              borderRadius: 'var(--radius-md)',
               textAlign: 'center',
               color: 'var(--color-foreground-muted)',
             }}
@@ -56,7 +56,7 @@ export default function HomePage(): ReactElement {
           <article
             style={{
               border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-lg)',
+              borderRadius: 'var(--radius-md)',
               padding: 'var(--space-4) var(--space-5)',
               background: 'var(--color-surface)',
               display: 'grid',
