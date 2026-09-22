@@ -1,5 +1,5 @@
-import type { ReactElement, ReactNode } from 'react';
-import { Link } from 'react-router';
+import type { CSSProperties, ReactElement, ReactNode } from 'react';
+import { NavLink as RouterNavLink } from 'react-router';
 
 /**
  * Top navigation surfacing the five primary destinations a player uses
@@ -19,40 +19,66 @@ export function TopNav(): ReactElement {
         gap: 'var(--space-4)',
         alignItems: 'center',
         background: 'var(--color-surface)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 'var(--z-sticky)',
+        backdropFilter: 'saturate(180%) blur(8px)',
       }}
     >
-      <Link
+      <RouterNavLink
         to="/"
-        style={{
-          fontWeight: 600,
-          fontSize: 'var(--text-lg)',
-          color: 'var(--color-primary)',
-        }}
+        end
+        style={({ isActive }) => ({
+          ...brandLink,
+          color: isActive ? 'var(--color-primary)' : 'var(--color-foreground)',
+        })}
       >
         Storyteller
-      </Link>
-      <NavLink to="/scenarios">Scenarios</NavLink>
-      <NavLink to="/play">Play</NavLink>
-      <NavLink to="/settings">Settings</NavLink>
-      <NavLink to="/wallet">Wallet</NavLink>
-      <NavLink to="/referrals">Referrals</NavLink>
+      </RouterNavLink>
+      <ul style={{ display: 'flex', gap: 'var(--space-2)', listStyle: 'none', margin: 0, padding: 0, flexWrap: 'wrap' }}>
+        <Item to="/scenarios">Scenarios</Item>
+        <Item to="/play">Play</Item>
+        <Item to="/settings">Settings</Item>
+        <Item to="/wallet">Wallet</Item>
+        <Item to="/referrals">Referrals</Item>
+        <Item to="/story-seed-preview">Story seed</Item>
+      </ul>
     </nav>
   );
 }
 
-function NavLink({ to, children }: { to: string; children: ReactNode }): ReactElement {
+function Item({ to, children }: { to: string; children: ReactNode }): ReactElement {
   return (
-    <Link
-      to={to}
-      style={{
-        color: 'var(--color-foreground-muted)',
-        fontSize: 'var(--text-sm)',
-        textDecoration: 'none',
-        padding: 'var(--space-1) var(--space-2)',
-        borderRadius: 'var(--radius-sm)',
-      }}
-    >
-      {children}
-    </Link>
+    <li>
+      <RouterNavLink
+        to={to}
+        style={({ isActive }) => ({
+          ...navLink,
+          color: isActive ? 'var(--color-primary)' : 'var(--color-foreground-muted)',
+          background: isActive ? 'var(--color-surface-muted)' : 'transparent',
+        })}
+      >
+        {children}
+      </RouterNavLink>
+    </li>
   );
 }
+
+const brandLink: CSSProperties = {
+  fontFamily: 'var(--font-serif)',
+  fontWeight: 'var(--weight-semibold)',
+  fontSize: 'var(--text-lg)',
+  textDecoration: 'none',
+  letterSpacing: '-0.01em',
+};
+
+const navLink: CSSProperties = {
+  fontSize: 'var(--text-sm)',
+  textDecoration: 'none',
+  padding: 'var(--space-1) var(--space-3)',
+  borderRadius: 'var(--radius-md)',
+  fontWeight: 'var(--weight-medium)',
+  minHeight: 'var(--control-touch-min)',
+  display: 'inline-flex',
+  alignItems: 'center',
+};

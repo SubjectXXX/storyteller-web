@@ -1,8 +1,8 @@
-import type { ReactElement, ReactNode } from 'react';
+import type { CSSProperties, ReactElement, ReactNode } from 'react';
 import { TopNav } from '@/components/TopNav';
 
 interface PageShellProps {
-  children: ReactNode;
+  readonly children: ReactNode;
 }
 
 /**
@@ -32,10 +32,13 @@ export function PageShell({ children }: PageShellProps): ReactElement {
           color: 'var(--color-foreground-subtle)',
           textAlign: 'center',
           fontSize: 'var(--text-xs)',
+          borderTop: '1px solid var(--color-border)',
         }}
       >
-        Storyteller · Stage S0 fixture
+        Storyteller \u00b7 Lantern &amp; Ink \u00b7 Stage S1 fixture shell
       </footer>
     </div>
   );
 }
+
+void {} as CSSProperties;

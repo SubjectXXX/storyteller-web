@@ -1,105 +1,134 @@
-import type { ReactElement } from "react";
-interface WalletFixture {
-  balanceCredits: number;
-  pendingReservations: number;
-  currency: 'credits';
-  packages: ReadonlyArray<{
-    id: string;
-    name: string;
-    baseCredits: number;
-    bonus: number;
-    priceLabel: string;
-    eligible: boolean;
-    reason?: string;
-  }>;
-}
-
-const FIXTURE: WalletFixture = {
-  balanceCredits: 12,
-  pendingReservations: 1,
-  currency: 'credits',
-  packages: [
-    {
-      id: 'pkg-starter',
-      name: 'Starter Pack',
-      baseCredits: 100,
-      bonus: 0,
-      priceLabel: '$5.00 USD',
-      eligible: true,
-    },
-    {
-      id: 'pkg-explorer',
-      name: 'Explorer Pack',
-      baseCredits: 500,
-      bonus: 10,
-      priceLabel: '$22.00 USD',
-      eligible: true,
-    },
-    {
-      id: 'pkg-vault',
-      name: 'Vault Pack',
-      baseCredits: 2400,
-      bonus: 15,
-      priceLabel: '$99.00 USD',
-      eligible: false,
-      reason: 'Currently available in EU, US, CA, AU only.',
-    },
-  ],
-};
+import type { ReactElement } from 'react';
+import { PageHeader } from '@/ui/PageHeader';
+import { Pill } from '@/ui/Pill';
+import { Button } from '@/ui/Button';
+import { WALLET_FIXTURE } from '@/fixtures/data';
 
 export default function WalletPage(): ReactElement {
+  const totalCreditsWithBonus = (base: number, bonusPercent: number) =>
+    base + Math.round((base * bonusPercent) / 100);
+
   return (
-    <section aria-labelledby="wallet" style={{ display: 'grid', gap: 'var(--space-4)' }}>
-      <h1 id="wallet" style={{ fontSize: 'var(--text-2xl)' }}>
-        Wallet & credits
-      </h1>
-      <div
+    <div>
+      <PageHeader
+        eyebrow="Wallet"
+        title="Credits & packages"
+        description="Every purchase posts through the verified payment webhook, not the browser return URL. The reservations column is the live count of in-flight purchases."
+      />
+
+      <section
+        aria-labelledby="balance"
         style={{
-          padding: 'var(--space-4)',
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-lg)',
           display: 'grid',
-          gap: 'var(--space-2)',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: 'var(--space-4)',
+          marginBottom: 'var(--space-6)',
         }}
       >
-        <p style={{ fontSize: 'var(--text-4xl)', fontWeight: 600 }}>
-          {FIXTURE.balanceCredits}
-          <span style={{ fontSize: 'var(--text-md)', color: 'var(--color-foreground-muted)' }}> credits</span>
-        </p>
-        <p style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-          {FIXTURE.pendingReservations} reservation in flight.
-        </p>
-      </div>
+        <article
+          style={{
+            padding: 'var(--space-5)',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-2)',
+          }}
+        >
+          <span style={{ color: 'var(--color-foreground-subtle)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>
+            Balance
+          </span>
+          <p style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-4xl)', fontWeight: 'var(--weight-semibold)', margin: 0 }}>
+            {WALLET_FIXTURE.balanceCredits}
+            <span style={{ fontSize: 'var(--text-md)', color: 'var(--color-foreground-muted)', marginLeft: 'var(--space-2)' }}>
+              credits
+            </span>
+          </p>
+          <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
+            {WALLET_FIXTURE.pendingReservations} reservation in flight
+          </span>
+        </article>
 
-      <h2 style={{ fontSize: 'var(--text-lg)', marginTop: 'var(--space-4)' }}>Credit packages</h2>
-      <ul style={{ display: 'grid', gap: 'var(--space-3)' }}>
-        {FIXTURE.packages.map((pkg) => (
+        <article
+          style={{
+            padding: 'var(--space-5)',
+            background: 'var(--color-surface-muted)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-lg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-2)',
+          }}
+        >
+          <span style={{ color: 'var(--color-foreground-subtle)', fontSize: 'var(--text-xs)', textTransform: 'uppercase' }}>
+            Tier
+          </span>
+          <p style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-2xl)', margin: 0 }}>Wayfinder</p>
+          <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
+            100 credits to next tier \u00b7 monthly bonus +5%
+          </span>
+        </article>
+      </section>
+
+      <h2
+        id="packages"
+        style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)', marginBottom: 'var(--space-3)' }}
+      >
+        Credit packages
+      </h2>
+      <ul
+        aria-labelledby="packages"
+        style={{
+          display: 'grid',
+          gap: 'var(--space-3)',
+          listStyle: 'none',
+          padding: 0,
+          margin: 0,
+        }}
+      >
+        {WALLET_FIXTURE.packages.map((pkg) => (
           <li
             key={pkg.id}
             style={{
-              padding: 'var(--space-3) var(--space-4)',
+              padding: 'var(--space-4)',
               border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
+              borderRadius: 'var(--radius-lg)',
               background: 'var(--color-surface)',
+              display: 'grid',
+              gridTemplateColumns: '1fr auto',
+              gap: 'var(--space-4)',
+              alignItems: 'center',
               opacity: pkg.eligible ? 1 : 0.7,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <strong>{pkg.name}</strong>
-              <span style={{ color: 'var(--color-foreground-muted)' }}>{pkg.priceLabel}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+              <strong style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)' }}>{pkg.name}</strong>
+              <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
+                {totalCreditsWithBonus(pkg.baseCredits, pkg.bonusPercent)} credits
+                {pkg.bonusPercent > 0 && (
+                  <em style={{ marginLeft: 'var(--space-2)', color: 'var(--color-success)' }}>
+                    +{pkg.bonusPercent}% bonus
+                  </em>
+                )}
+              </span>
+              {!pkg.eligible && pkg.reason && (
+                <Pill intent="warning" title={pkg.reason}>
+                  Regional restriction
+                </Pill>
+              )}
             </div>
-            <p style={{ marginTop: 'var(--space-1)', fontSize: 'var(--text-sm)' }}>
-              {pkg.baseCredits + pkg.bonus} credits{pkg.bonus > 0 && <em> (+{pkg.bonus}% bonus)</em>}
-            </p>
-            {! pkg.eligible && (
-              <p style={{ marginTop: 'var(--space-2)', fontSize: 'var(--text-xs)', color: 'var(--color-warning)' }}>
-                {pkg.reason}
-              </p>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-foreground-muted)' }}>
+                {pkg.priceLabel}
+              </span>
+              <Button intent={pkg.eligible ? 'primary' : 'secondary'} disabled={!pkg.eligible}>
+                {pkg.eligible ? 'Buy' : 'Unavailable'}
+              </Button>
+            </div>
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }
