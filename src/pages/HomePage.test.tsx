@@ -76,4 +76,42 @@ describe('HomePage', () => {
     renderWithProviders(fetcher);
     expect(screen.getByRole('heading', { level: 3, name: /a quiet court/i })).toBeTruthy();
   });
+
+  it('renders the LM Studio provider pill when the AI status endpoint reports a reachable LM Studio backend', async () => {
+    const fetcher: Fetcher = async (path) => {
+      if (path === '/admin/ai/status') {
+        return {
+          provider: 'lmstudio',
+          model: 'qwen2.5-7b-instruct',
+          base_url: 'http://host.docker.internal:1234/v1',
+          reachable: true,
+        };
+      }
+      return undefined;
+    };
+    renderWithProviders(fetcher);
+    await waitFor(() => {
+      expect(screen.getByTestId('ai-provider-pill').textContent).toMatch(
+        /Provider: LM Studio \(qwen2\.5-7b-instruct\)/,
+      );
+    });
+  });
+
+  it('renders the unknown provider pill when the AI status endpoint is unreachable', async () => {
+    const fetcher: Fetcher = async (path) => {
+      if (path === '/admin/ai/status') {
+        return {
+          provider: 'unknown',
+          model: 'unknown',
+          base_url: '',
+          reachable: false,
+        };
+      }
+      return undefined;
+    };
+    renderWithProviders(fetcher);
+    await waitFor(() => {
+      expect(screen.getByTestId('ai-provider-pill').textContent).toMatch(/Provider: unknown/);
+    });
+  });
 });
