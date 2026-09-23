@@ -156,6 +156,114 @@ export interface WalletLegacyTopUpResponse {
   readonly checkoutUrl: string;
 }
 
+// ---------- AI status ----------------------------------------------------
+
+/**
+ * Public, read-only LLM provider status. The API exposes this so the SPA
+ * can show a "Provider: …" pill on the home page even when the
+ * authentication-gated endpoints are unreachable. The SPA calls
+ * `GET /api/admin/ai/status` on every mount via TanStack Query (the API
+ * worker pins `staleTime: 30s`).
+ */
+export interface AiStatusResponse {
+  readonly provider: 'fake' | 'lmstudio' | 'unknown';
+  readonly model: string;
+  readonly base_url: string;
+  readonly reachable: boolean;
+}
+
+// ---------- Streaming SSE -------------------------------------------------
+
+/**
+ * One chunk of a streamed turn. The LLM emits narration token-by-token;
+ * the API multiplexes these into a single SSE channel alongside a final
+ * `usage` event so the player can render a token meter and a typewriter
+ * reveal at the same time.
+ *
+ * The `chunk` event arrives once per token. `usage` arrives exactly once
+ * at the end of a turn, before the `end` event. `end` closes the stream;
+ * `error` surfaces upstream failures (timeout, model overload).
+ */
+export type StreamEvent =
+  | {
+      readonly type: 'turn';
+      readonly turn_id: number;
+      readonly chunk_index: number;
+      readonly narration: string;
+    }
+  | {
+      readonly type: 'usage';
+      readonly input_tokens: number;
+      readonly output_tokens: number;
+      readonly total_tokens: number;
+      readonly latency_ms: number;
+      readonly model: string;
+      readonly finish_reason: 'stop' | 'length' | 'content_filter' | 'error';
+      readonly cost_credits: number;
+    }
+  | { readonly type: 'end' }
+  | { readonly type: 'error'; readonly message: string; readonly code?: string };
+
+/**
+ * Per-turn metering the API surfaces on the `usage` event. The SPA uses
+ * this to render the `<TokenMeter>` badge and to deduct credits from the
+ * player wallet after a turn settles.
+ */
+export interface TurnUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly latencyMs: number;
+  readonly model: string;
+  readonly finishReason: 'stop' | 'length' | 'content_filter' | 'error';
+  readonly costCredits: number;
+}
+
+/**
+ * Discriminated `usage` payload variant exposed alongside `StreamEvent`.
+ * The parser emits this directly so the React layer can consume a
+ * `{ type: 'usage', usage: TurnUsage }` shape, but the wire format still
+ * arrives as flat snake_case fields. The two variants are equivalent;
+ * `TurnUsageEvent` is just a friendlier shape.
+ */
+export type TurnUsageEvent = {
+  readonly type: 'usage';
+  readonly usage: TurnUsage;
+};
+
+/**
+ * Typed consumption contract for the adventure SSE stream. Pages pass one
+ * of these to `streamAdventure()`; the implementation dispatches each
+ * parsed event to the matching handler. The `signal` lets the caller
+ * cancel mid-stream (e.g. when the player navigates away).
+ */
+export interface StreamHandlers {
+  readonly signal: AbortSignal;
+  readonly onTurn?: (payload: {
+    readonly turnId: number;
+    readonly chunkIndex: number;
+    readonly narration: string;
+  }) => void;
+  readonly onUsage?: (payload: TurnUsage) => void;
+  readonly onEnd?: () => void;
+  readonly onError?: (payload: { message: string; code?: string }) => void;
+}
+
+/**
+ * Per-turn metering the API surfaces on the `usage` event. The SPA uses
+ * this to render the `<TokenMeter>` badge and to deduct credits from the
+ * player wallet after a turn settles.
+ */
+export interface TurnUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly latencyMs: number;
+  readonly model: string;
+  readonly finishReason: 'stop' | 'length' | 'content_filter' | 'error';
+  readonly costCredits: number;
+}
+
 // ---------- Errors ---------------------------------------------------------
 
 export interface ApiErrorBody {
@@ -245,6 +353,15 @@ export interface ApiClient {
     body: SettingsUpdateRequest,
     options?: RequestOptions,
   ) => Promise<SettingsResponse>;
+
+  // AI provider (public, no auth)
+  readonly getAiStatus: (options?: RequestOptions) => Promise<AiStatusResponse>;
+
+  // Streaming SSE
+  readonly streamAdventure: (
+    id: number,
+    opts: { sinceTurnId?: number } & StreamHandlers,
+  ) => Promise<void>;
 
   // Legacy play-turn surface (used by PlaySurfacePlaceholder until S2 wires
   // /api/adventures/:id for actual play). Keep these so the placeholder
@@ -360,6 +477,281 @@ function extractErrorBody(
     }
   }
   return { message: text || fallback };
+}
+
+// ---------- Streaming SSE consumer -----------------------------------------
+
+export function parseStreamEvent(raw: unknown): StreamEvent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const type = obj.type;
+  if (type === 'turn') {
+    const turnId = Number(obj.turn_id ?? obj.turnId);
+    const chunkIndex = Number(obj.chunk_index ?? obj.chunkIndex ?? 0);
+    const narration = typeof obj.narration === 'string' ? obj.narration : '';
+    if (!Number.isFinite(turnId)) return null;
+    return {
+      type: 'turn',
+      turn_id: turnId,
+      chunk_index: chunkIndex,
+      narration,
+    };
+  }
+  if (type === 'usage') {
+    const finishReason: TurnUsage['finishReason'] =
+      obj.finish_reason === 'length' ||
+      obj.finish_reason === 'content_filter' ||
+      obj.finish_reason === 'error'
+        ? obj.finish_reason
+        : 'stop';
+    return {
+      type: 'usage',
+      input_tokens: Number(obj.input_tokens ?? 0),
+      output_tokens: Number(obj.output_tokens ?? 0),
+      total_tokens: Number(obj.total_tokens ?? 0),
+      latency_ms: Number(obj.latency_ms ?? 0),
+      model: typeof obj.model === 'string' ? obj.model : 'unknown',
+      finish_reason: finishReason,
+      cost_credits: Number(obj.cost_credits ?? 0),
+    };
+  }
+  if (type === 'end') return { type: 'end' };
+  if (type === 'error') {
+    return {
+      type: 'error',
+      message: typeof obj.message === 'string' ? obj.message : 'Stream error',
+      code: typeof obj.code === 'string' ? obj.code : undefined,
+    };
+  }
+  return null;
+}
+
+/**
+ * Dispatch a parsed `StreamEvent` to the matching handler on `handlers`.
+ * Missing handlers are silently skipped so the caller only wires up the
+ * callbacks it cares about. We coerce `turn` into the compact payload
+ * shape `useAdventureStream` exposes to React components.
+ */
+function dispatchStreamEvent(event: StreamEvent, handlers: StreamHandlers): void {
+  if (event.type === 'turn') {
+    handlers.onTurn?.({
+      turnId: event.turn_id,
+      chunkIndex: event.chunk_index,
+      narration: event.narration,
+    });
+    return;
+  }
+  if (event.type === 'usage') {
+    const usage: TurnUsage = {
+      inputTokens: event.input_tokens,
+      outputTokens: event.output_tokens,
+      totalTokens: event.total_tokens,
+      latencyMs: event.latency_ms,
+      model: event.model,
+      finishReason: event.finish_reason,
+      costCredits: event.cost_credits,
+    };
+    handlers.onUsage?.(usage);
+    return;
+  }
+  if (event.type === 'end') {
+    handlers.onEnd?.();
+    return;
+  }
+  if (event.type === 'error') {
+    handlers.onError?.({ message: event.message, code: event.code });
+  }
+}
+
+/**
+ * Buffer SSE chunks. The server emits events separated by `\n\n`; the
+ * browser may split a single event across multiple chunks. We accumulate
+ * raw bytes into `buffer` and slice complete events as `\n\n` appears.
+ */
+function sliceSseEvents(buffer: string): { events: string[]; rest: string } {
+  const events: string[] = [];
+  let idx = buffer.indexOf('\n\n');
+  while (idx !== -1) {
+    events.push(buffer.slice(0, idx));
+    buffer = buffer.slice(idx + 2);
+    idx = buffer.indexOf('\n\n');
+  }
+  return { events, rest: buffer };
+}
+
+/**
+ * Pull the `data: …` payload out of a single SSE event frame. Comments
+ * (lines starting with `:`) and other fields are ignored; the spec only
+ * requires us to act on `data`.
+ */
+function readDataFrame(eventText: string): string | null {
+  const lines = eventText.split('\n');
+  const dataLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith(':')) continue;
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice('data:'.length).trimStart());
+    }
+  }
+  if (dataLines.length === 0) return null;
+  return dataLines.join('\n');
+}
+
+/**
+ * Open a streaming GET on `/api/adventures/{id}/stream` and pump events
+ * into the supplied handlers until the server sends `end`, the
+ * `AbortSignal` fires, or the connection drops. The function is a no-op
+ * once the signal has already aborted.
+ *
+ * Fixture fallback: the dev sandbox ships with a fixture-mode stream so
+ * the page renders even when the API is offline. We detect the offline
+ * case by checking the `__STORYTELLER_FIXTURE_STREAM` global that
+ * `withFixtureFallback` exposes, and emit a small canned turn.
+ */
+export async function consumeAdventureStream(
+  adventureId: number,
+  handlers: StreamHandlers,
+  baseUrl: string = DEFAULT_BASE_URL,
+  authToken?: string,
+): Promise<void> {
+  if (handlers.signal.aborted) return;
+  const params = new URLSearchParams();
+  const sinceTurnId = (handlers as unknown as { sinceTurnId?: number }).sinceTurnId;
+  if (typeof sinceTurnId === 'number' && Number.isFinite(sinceTurnId)) {
+    params.set('since_turn_id', String(sinceTurnId));
+  }
+  const qs = params.toString();
+  const url = `${baseUrl}/adventures/${adventureId}/stream${qs ? `?${qs}` : ''}`;
+
+  const headers: Record<string, string> = {
+    Accept: 'text/event-stream',
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      headers,
+      signal: handlers.signal,
+      credentials: 'include',
+    });
+  } catch (err) {
+    // Aborted fetches surface as `AbortError`/`DOMException`; everything
+    // else is a real network failure. The page surfaces a "Stream
+    // interrupted" banner via the `onError` handler.
+    if (handlers.signal.aborted) return;
+    const message = err instanceof Error ? err.message : String(err);
+    dispatchStreamEvent(
+      { type: 'error', message: `Network error: ${message}`, code: 'network' },
+      handlers,
+    );
+    return;
+  }
+
+  if (!response.ok) {
+    let bodyText = '';
+    try {
+      bodyText = await response.text();
+    } catch {
+      // ignore — bodyText stays empty
+    }
+    const errBody = extractErrorBody(
+      bodyText.length > 0 ? safeParse(bodyText) : undefined,
+      bodyText,
+      response.statusText,
+    );
+    dispatchStreamEvent(
+      {
+        type: 'error',
+        message: errBody.message || response.statusText || `HTTP ${response.status}`,
+        code: errBody.code ?? `http_${response.status}`,
+      },
+      handlers,
+    );
+    return;
+  }
+
+  if (!response.body) {
+    dispatchStreamEvent(
+      { type: 'error', message: 'Stream response had no body', code: 'no_body' },
+      handlers,
+    );
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  try {
+    while (!handlers.signal.aborted) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const { events, rest } = sliceSseEvents(buffer);
+      buffer = rest;
+      for (const eventText of events) {
+        const data = readDataFrame(eventText);
+        if (data === null) continue;
+        if (data === '[DONE]') {
+          dispatchStreamEvent({ type: 'end' }, handlers);
+          return;
+        }
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        const event = parseStreamEvent(parsed);
+        if (!event) continue;
+        dispatchStreamEvent(event, handlers);
+        if (event.type === 'end' || event.type === 'error') {
+          // Drain and close. The reader.cancel below aborts the network
+          // request so we don't leave the connection open.
+          try {
+            await reader.cancel();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+      }
+    }
+  } catch (err) {
+    if (handlers.signal.aborted) return;
+    const message = err instanceof Error ? err.message : String(err);
+    dispatchStreamEvent(
+      { type: 'error', message: `Stream interrupted: ${message}`, code: 'stream_broken' },
+      handlers,
+    );
+    return;
+  }
+
+  if (handlers.signal.aborted) return;
+  // Stream ended without an explicit `end` event; surface it so the page
+  // can drop its "Streaming…" indicator cleanly.
+  dispatchStreamEvent({ type: 'end' }, handlers);
+}
+
+/**
+ * Build a `ReadableStream<Uint8Array>` fixture the test suite (and the
+ * offline dev shell) can pipe into `consumeAdventureStream` to exercise
+ * the dispatch table without a live API.
+ */
+export function makeFixtureStream(events: ReadonlyArray<StreamEvent>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const lines = events.map((event) => `data: ${JSON.stringify(event)}\n\n`);
+  // `flush` closes the connection after the last event so consumers see
+  // `done: true` on their next reader.read().
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const line of lines) controller.enqueue(encoder.encode(line));
+      controller.close();
+    },
+  });
 }
 
 // ---------- Fixture transport (offline dev / tests) --------------------------
@@ -565,6 +957,16 @@ export function fixtureFetcher(): Fetcher {
       } satisfies SettingsResponse;
     }
 
+    // ----- AI status (public) -----
+    if (method === 'GET' && path_ === '/admin/ai/status') {
+      return {
+        provider: 'lmstudio',
+        model: 'qwen2.5-7b-instruct',
+        base_url: 'http://host.docker.internal:1234/v1',
+        reachable: true,
+      } satisfies AiStatusResponse;
+    }
+
     // ----- Legacy play-turn (kept for PlaySurfacePlaceholder) -----
     if (method === 'GET' && /^\/scenarios\/[^/]+\/play-turn$/.test(path_)) {
       return PLAY_FIXTURE satisfies PlayTurnFixture;
@@ -615,7 +1017,7 @@ function applyScenarioFilters(
 
 // ---------- Factory ----------------------------------------------------------
 
-export function createApi(fetcher: Fetcher): ApiClient {
+export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
   return {
     // Auth
     signIn: (body, options) =>
@@ -679,6 +1081,21 @@ export function createApi(fetcher: Fetcher): ApiClient {
       fetcher('/me/settings', { ...options, method: 'GET' }) as Promise<SettingsResponse>,
     updateSettings: (body, options) =>
       fetcher('/me/settings', { ...options, method: 'PUT', body }) as Promise<SettingsResponse>,
+
+    // AI provider (public)
+    getAiStatus: (options) =>
+      fetcher('/admin/ai/status', { ...options, method: 'GET' }) as Promise<AiStatusResponse>,
+
+    // Streaming SSE — runs out-of-band of the `Fetcher` because it is a
+    // long-lived request, not a single round trip. We expose a hook-level
+    // wrapper in `useAdventures` so pages never call this directly.
+    streamAdventure: async (adventureId, opts) => {
+      const { sinceTurnId, ...handlers } = opts;
+      const handlersWithSince = { ...handlers, sinceTurnId } as StreamHandlers & {
+        sinceTurnId?: number;
+      };
+      await consumeAdventureStream(adventureId, handlersWithSince, DEFAULT_BASE_URL, authToken);
+    },
 
     // Legacy
     getPlayTurn: (scenarioId, options) =>

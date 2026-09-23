@@ -1,8 +1,9 @@
 import type { CSSProperties, ReactElement, ReactNode } from 'react';
-import { NavLink as RouterNavLink } from 'react-router';
+import { NavLink as RouterNavLink, useParams } from 'react-router';
 import { Button } from '@/ui/Button';
+import { Pill } from '@/ui/Pill';
 import { useAuth } from '@/auth/useAuth';
-import { useAdventures } from '@/hooks/useAdventures';
+import { useAdventures, useAdventureStream } from '@/hooks/useAdventures';
 import { useNavigate } from 'react-router';
 
 /**
@@ -10,13 +11,24 @@ import { useNavigate } from 'react-router';
  * S2 vertical slice: scenarios, adventures, settings, wallet, referrals,
  * plus authentication affordances (sign in / sign out) and a quick link
  * back to the player's active adventure.
+ *
+ * When the player is on `/adventures/:id` and the SSE stream is open, the
+ * nav surfaces a "Streaming…" pill so they can see at a glance that the
+ * LLM is mid-turn.
  */
 export function TopNav(): ReactElement {
   const { token, user, signOut } = useAuth();
   const adventuresQuery = useAdventures();
   const navigate = useNavigate();
+  const params = useParams<{ id: string }>();
+  const activeAdventureId = (() => {
+    const parsed = Number(params.id);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  })();
+  const activeStream = useAdventureStream(activeAdventureId, { enabled: activeAdventureId !== undefined });
   const activeAdventure =
     adventuresQuery.data?.find((a) => a.status === 'active') ?? null;
+  const isStreaming = activeStream.streaming;
 
   const handleSignOut = async () => {
     await signOut();
@@ -71,6 +83,17 @@ export function TopNav(): ReactElement {
           >
             Continue adventure
           </Item>
+        )}
+        {isStreaming && (
+          <li>
+            <Pill
+              intent="info"
+              title="The adventure stream is open."
+              data-testid="streaming-pill"
+            >
+              Streaming…
+            </Pill>
+          </li>
         )}
       </ul>
       <div

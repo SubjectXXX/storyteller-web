@@ -6,8 +6,9 @@ import AdventurePage from './AdventurePage';
 import {
   ApiClientProvider,
   ApiError,
+  makeFixtureStream,
 } from '@/api-client';
-import type { Fetcher } from '@/api-client';
+import type { Fetcher, StreamEvent } from '@/api-client';
 import { AuthProvider } from '@/auth/AuthContext';
 import { ADVENTURE_FIXTURE, AUTH_FIXTURE, TURN_FIXTURE } from '@/fixtures/data';
 
@@ -118,6 +119,57 @@ describe('AdventurePage', () => {
     await waitFor(() => {
       const alert = screen.queryByRole('alert');
       expect(alert?.textContent).toMatch(/stale branch version/i);
+    });
+  });
+
+  it('renders the typewriter narration when the stream emits turn chunks', async () => {
+    const events: StreamEvent[] = [
+      { type: 'turn', turn_id: 1, chunk_index: 0, narration: 'Once ' },
+      { type: 'turn', turn_id: 1, chunk_index: 1, narration: 'upon ' },
+      { type: 'turn', turn_id: 1, chunk_index: 2, narration: 'a time.' },
+      {
+        type: 'usage',
+        input_tokens: 5,
+        output_tokens: 6,
+        total_tokens: 11,
+        latency_ms: 100,
+        model: 'qwen2.5-7b-instruct',
+        finish_reason: 'stop',
+        cost_credits: 1,
+      },
+      { type: 'end' },
+    ];
+    const fetcher: Fetcher = async (path) => {
+      if (path === '/auth/me') return AUTH_FIXTURE.user;
+      if (path === '/adventures') return [ADVENTURE_FIXTURE];
+      if (path === '/adventures/101') return ADVENTURE_FIXTURE;
+      if (path.startsWith('/adventures/101/stream')) return makeFixtureStream(events);
+      return undefined;
+    };
+    renderAt('/adventures/101', fetcher);
+    await waitFor(() => {
+      const tw = screen.getByTestId('typewriter');
+      expect(tw.textContent).toContain('Once upon a time.');
+    });
+    // Token meter should report the totals once the usage event arrives.
+    await waitFor(() => {
+      expect(screen.getByTestId('token-meter').textContent).toMatch(/11/);
+    });
+  });
+
+  it('shows the Stream interrupted banner when the stream emits an error event', async () => {
+    const events: StreamEvent[] = [{ type: 'error', message: 'upstream timeout', code: 'timeout' }];
+    const fetcher: Fetcher = async (path) => {
+      if (path === '/auth/me') return AUTH_FIXTURE.user;
+      if (path === '/adventures') return [ADVENTURE_FIXTURE];
+      if (path === '/adventures/101') return ADVENTURE_FIXTURE;
+      if (path.startsWith('/adventures/101/stream')) return makeFixtureStream(events);
+      return undefined;
+    };
+    renderAt('/adventures/101', fetcher);
+    await waitFor(() => {
+      const alert = screen.getByTestId('stream-interrupted');
+      expect(alert.textContent).toMatch(/upstream timeout/);
     });
   });
 });

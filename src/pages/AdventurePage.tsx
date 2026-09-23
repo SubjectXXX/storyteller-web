@@ -5,9 +5,12 @@ import { PageHeader } from '@/ui/PageHeader';
 import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
+import { TokenMeter } from '@/components/TokenMeter';
+import { Typewriter } from '@/components/Typewriter';
 import { ApiError } from '@/api-client';
 import {
   useAdventure,
+  useAdventureStream,
   useCreateBranch,
   useSubmitTurn,
 } from '@/hooks/useAdventures';
@@ -50,6 +53,12 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   const adventureQuery = useAdventure(adventureId);
   const submitTurn = useSubmitTurn(adventureId);
   const createBranch = useCreateBranch(adventureId);
+  const stream = useAdventureStream(adventureId, {
+    // Re-subscribe after the player submits a turn so the SSE endpoint
+    // picks up the latest narration. We use `lastTurnId ?? 0` to mean
+    // "start from the beginning of the active branch".
+    sinceTurnId: 0,
+  });
 
   const [freeText, setFreeText] = useState('');
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
@@ -139,6 +148,15 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   const conflictError =
     submitTurn.error instanceof ApiError && submitTurn.error.status === 409;
 
+  // The live narration from the stream takes precedence over the fixture
+  // we shipped for the offline shell. Once the stream ends without
+  // chunks (e.g. fixture mode without narration) we fall back to the
+  // fixture so the page is never empty.
+  const narration = stream.liveNarration.length > 0 ? stream.liveNarration : TURN_FIXTURE.narration;
+  const isStreaming = stream.streaming;
+  const streamInterrupted = stream.error !== null && !isStreaming;
+  const liveTurnId = stream.liveTurnId ?? TURN_FIXTURE.id;
+
   return (
     <div>
       <PageHeader
@@ -163,13 +181,35 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
         </p>
       )}
 
-      <article style={cardStyle} aria-live="polite">
-        <Pill intent="muted" title={`Sequence #${TURN_FIXTURE.sequence_number}`}>
-          Turn #{TURN_FIXTURE.sequence_number}
-        </Pill>
-        <p className="prose" style={{ margin: 0 }}>
-          {TURN_FIXTURE.narration}
+      {streamInterrupted && stream.error && (
+        <p role="alert" data-testid="stream-interrupted" style={errorPanel}>
+          Stream interrupted: {stream.error.message}
         </p>
+      )}
+
+      <article style={cardStyle} aria-live="polite">
+        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Pill intent="muted" title={`Sequence #${TURN_FIXTURE.sequence_number}`}>
+            Turn #{TURN_FIXTURE.sequence_number}
+          </Pill>
+          {isStreaming && (
+            <Pill intent="info" title="Live stream is open">
+              Streaming…
+            </Pill>
+          )}
+        </div>
+        <div className="prose" style={{ margin: 0, minHeight: '4lh' }}>
+          {isStreaming || stream.liveNarration.length > 0 ? (
+            <Typewriter
+              text={narration}
+              key={`turn-${liveTurnId}`}
+              ariaLabel={`Turn ${TURN_FIXTURE.sequence_number} narration`}
+            />
+          ) : (
+            narration
+          )}
+        </div>
+        <TokenMeter usage={stream.usage} />
 
         <div
           aria-label="Suggested choices"

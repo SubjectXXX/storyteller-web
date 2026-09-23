@@ -7,6 +7,7 @@ import { LoadingPanel } from '@/components/LoadingPanel';
 import { useAuth } from '@/auth/useAuth';
 import { useScenarios } from '@/hooks';
 import { useAdventures } from '@/hooks/useAdventures';
+import { useAiStatus, AI_STATUS_FALLBACK } from '@/hooks/useAiStatus';
 import {
   ADVENTURE_LIST_FIXTURE,
   SCENARIO_FIXTURES,
@@ -19,6 +20,7 @@ export default function HomePage(): ReactElement {
   const { data, isLoading, error } = useScenarios();
   const { token } = useAuth();
   const adventuresQuery = useAdventures();
+  const aiStatusQuery = useAiStatus();
   const featured: ScenarioResource | undefined =
     (data && data[0]) ?? SCENARIO_RESOURCE_FIXTURES[0];
 
@@ -35,6 +37,23 @@ export default function HomePage(): ReactElement {
         : ADVENTURE_LIST_FIXTURE;
   const continueAdventure = activeAdventures.find((a) => a.status === 'active');
 
+  // The AI status pill always renders, even when the API is offline.
+  // We derive the visible text from `data ?? AI_STATUS_FALLBACK` so the
+  // UI stays consistent across loading / error / success states.
+  const ai = aiStatusQuery.data ?? AI_STATUS_FALLBACK;
+  const providerLabel =
+    ai.provider === 'unknown'
+      ? 'Provider: unknown'
+      : ai.provider === 'lmstudio'
+        ? `Provider: LM Studio (${ai.model})`
+        : `Provider: ${ai.provider}`;
+  const providerIntent =
+    ai.provider === 'unknown'
+      ? 'muted'
+      : ai.reachable
+        ? 'success'
+        : 'warning';
+
   return (
     <div>
       <PageHeader
@@ -43,6 +62,17 @@ export default function HomePage(): ReactElement {
         description="Pick a scenario to read through its synopsis, or jump straight into play to walk through the surfaces we are polishing for S2."
         actions={
           <>
+            <Pill
+              intent={providerIntent}
+              title={
+                ai.reachable
+                  ? `Provider reachable at ${ai.base_url || 'a configured endpoint'}`
+                  : 'Provider not reachable; the API will use the offline fixture.'
+              }
+              data-testid="ai-provider-pill"
+            >
+              {providerLabel}
+            </Pill>
             <Link to="/scenarios">
               <Button intent="primary">Browse scenarios</Button>
             </Link>
