@@ -36,7 +36,6 @@ import {
   ApiError,
   type LoreEntry,
   type LoreListResponseShape,
-  type PinnedMemory,
   type PinnedMemoryListResponseShape,
   type RecapResponse,
 } from '@/api-client';
