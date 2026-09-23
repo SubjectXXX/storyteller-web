@@ -14,6 +14,7 @@ import {
   useCreateBranch,
   useSubmitTurn,
 } from '@/hooks/useAdventures';
+import { ImagePanel } from '@/features/play/ImagePanel/ImagePanel';
 import { TURN_FIXTURE, type SuggestedChoice } from '@/fixtures/data';
 
 /**
@@ -293,6 +294,14 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
             </Button>
           </div>
         </form>
+      </section>
+
+      <section style={{ marginTop: 'var(--space-5)' }} aria-label="Visuals">
+        <ImagePanel
+          adventureId={adventure.id}
+          branchId={adventure.current_branch.id}
+          turnId={liveTurnId}
+        />
       </section>
     </div>
   );
