@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" role="img" aria-labelledby="title desc">
+  <title id="title">A misty harbour at dusk, cinematic lighting</title>
+  <desc id="desc">Stylised placeholder illustration of a misty harbour with lanterns reflected in still water. The Stage 6 fixture ships this SVG so the player SPA can render the image panel offline.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3a2f4c" />
+      <stop offset="55%" stop-color="#7a5b6e" />
+      <stop offset="100%" stop-color="#d8a26a" />
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1d2233" />
+      <stop offset="100%" stop-color="#0d1018" />
+    </linearGradient>
+    <radialGradient id="lantern" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#fff4cc" stop-opacity="1" />
+      <stop offset="40%" stop-color="#f0c050" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#f0c050" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="540" fill="url(#sky)" />
+  <rect y="540" width="1280" height="180" fill="url(#water)" />
+  <g fill="#0f1320" opacity="0.85">
+    <polygon points="120,540 200,420 320,540" />
+    <polygon points="280,540 360,400 470,540" />
+    <polygon points="540,540 640,380 740,540" />
+    <polygon points="820,540 900,440 980,540" />
+    <polygon points="1040,540 1120,420 1200,540" />
+  </g>
+  <g fill="#161a2a">
+    <rect x="610" y="380" width="20" height="160" />
+    <rect x="600" y="540" width="40" height="20" />
+  </g>
+  <g>
+    <circle cx="620" cy="375" r="34" fill="url(#lantern)" />
+    <circle cx="200" cy="395" r="18" fill="url(#lantern)" />
+    <circle cx="900" cy="415" r="22" fill="url(#lantern)" />
+    <circle cx="1080" cy="395" r="18" fill="url(#lantern)" />
+  </g>
+  <g stroke="#f0c050" stroke-opacity="0.4" stroke-width="1">
+    <line x1="620" y1="375" x2="640" y2="560" />
+    <line x1="900" y1="415" x2="890" y2="570" />
+    <line x1="200" y1="395" x2="210" y2="555" />
+    <line x1="1080" y1="395" x2="1075" y2="560" />
+  </g>
+  <g fill="#fff4cc" opacity="0.6">
+    <circle cx="950" cy="120" r="2" />
+    <circle cx="1120" cy="80" r="1.5" />
+    <circle cx="240" cy="100" r="2" />
+    <circle cx="380" cy="160" r="1.5" />
+    <circle cx="700" cy="60" r="2" />
+  </g>
+</svg>
