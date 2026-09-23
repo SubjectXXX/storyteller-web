@@ -14,7 +14,29 @@ import {
   useCreateBranch,
   useSubmitTurn,
 } from '@/hooks/useAdventures';
+import { useBranchTree } from '@/hooks/useBranchTree';
+import { useRedoBranch, useRetryBranch, useUndoBranch } from '@/hooks/useBranchOps';
+import { useCharacter } from '@/hooks/useCharacter';
+import { useNpcRoster } from '@/hooks/useNpcRoster';
+import { useInventory } from '@/hooks/useInventory';
+import { useDiceClock } from '@/hooks/useDiceClock';
+import { useRecap } from '@/hooks/useRecap';
+import {
+  useAdventureSettings,
+  useEffectiveSettings,
+  useUpdateAdventureSettings,
+} from '@/hooks/useAdventureSettings';
+import { usePlayerSettings } from '@/hooks/usePlayerSettings';
+import { CharacterPanel } from '@/features/play/CharacterPanel/CharacterPanel';
+import { NpcRoster } from '@/features/play/NpcRoster/NpcRoster';
+import { InventoryPanel } from '@/features/play/InventoryPanel/InventoryPanel';
+import { MemoryPanel } from '@/features/play/MemoryPanel/MemoryPanel';
+import { DiceClockPanel } from '@/features/play/DiceClockPanel/DiceClockPanel';
+import { QuestLog } from '@/features/play/QuestLog/QuestLog';
+import { BranchBar } from '@/features/play/BranchBar/BranchBar';
+import { AdventureSettingsDrawer } from '@/features/settings/AdventureSettingsDrawer';
 import { TURN_FIXTURE, type SuggestedChoice } from '@/fixtures/data';
+import type { Quest } from '@/features/play/QuestLog/QuestLog';
 
 /**
  * Generates a stable v4 UUID for the idempotency key. We rely on
@@ -33,6 +55,15 @@ const CHOICE_INTENT: Record<string, 'primary' | 'secondary' | 'ghost'> = {
   cautious: 'secondary',
   playful: 'ghost',
 };
+
+// `data-testid` exposed to integration / viewport tests so the assertions
+// can target a single canonical element rather than scraping the DOM.
+export const ADVENTURE_PAGE_TESTIDS = {
+  surface: 'adventure-surface',
+  worldGrid: 'adventure-world-grid',
+  liveRegion: 'adventure-live-region',
+  settingsButton: 'open-adventure-settings',
+} as const;
 
 export default function AdventurePage(): ReactElement {
   const { id } = useParams<{ id: string }>();
@@ -60,10 +91,46 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
     sinceTurnId: 0,
   });
 
+  // Stage 4 panel queries. Each is fault-tolerant: loading and error
+  // states are rendered inline by the panels themselves, so the page
+  // continues to render even when an individual endpoint is offline.
+  const characterQuery = useCharacter(adventureId);
+  const npcQuery = useNpcRoster(adventureId);
+  const recapQuery = useRecap(adventureId);
+  const branchTreeQuery = useBranchTree(adventureId);
+  const adventureSettingsQuery = useAdventureSettings(adventureId);
+  const playerSettingsQuery = usePlayerSettings();
+  const retryBranch = useRetryBranch(adventureId);
+  const undoBranch = useUndoBranch(adventureId);
+  const redoBranch = useRedoBranch(adventureId);
+  const updateAdventureSettings = useUpdateAdventureSettings(adventureId);
+
+  // Mechanics / inventory / effective-settings hooks must be called
+  // unconditionally (Rules of Hooks). They accept null/undefined input
+  // so the page can render with the data once it arrives.
+  const branchState = adventureQuery.data?.current_branch.state ?? null;
+  const mechanicEvent = useDiceClock(stream.usage, branchState);
+  const inventory = useInventory(branchState ?? undefined);
+  const effectiveSettingsQuery = useEffectiveSettings(adventureId, undefined);
+  // `scenario.quests` is not yet on the API; the QuestLog renders an
+  // empty state until the seed worker ships quests. Memoised to a
+  // stable empty array so the child reference does not change on
+  // every render.
+  const quests = useMemo<ReadonlyArray<Quest>>(() => [], []);
+
   const [freeText, setFreeText] = useState('');
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
   const [lastTurnId, setLastTurnId] = useState<number | null>(null);
   const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
+  const [branchError, setBranchError] = useState<string | null>(null);
+  const [isDrawerOpen, setDrawerOpen] = useState(false);
+  const [livePreview, setLivePreview] = useState<
+    | {
+        readonly theme?: 'light' | 'dark' | 'system';
+        readonly narration_verbosity?: 'terse' | 'balanced' | 'rich';
+      }
+    | null
+  >(null);
 
   // Refetch the adventure on window focus so a refresh / re-tab picks up the
   // latest branch version before the player submits another turn.
@@ -75,6 +142,12 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [adventureQuery]);
+
+  // Whenever the active branch changes (after a fresh fetch or a branch
+  // op) reset the branch error banner so the next error replaces it.
+  useEffect(() => {
+    setBranchError(null);
+  }, [adventureQuery.data?.current_branch.id]);
 
   const onSubmit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -112,13 +185,43 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
         from_branch_id: branch.id,
         from_turn_id: lastTurnId,
       });
-      setDuplicateNotice(`Forked branch “${branchRes.name}”.`);
+      setDuplicateNotice(`Forked branch \u201C${branchRes.name}\u201D.`);
     } catch (err) {
       setDuplicateNotice(
         err instanceof Error ? err.message : 'Could not fork the branch.',
       );
     }
   }, [adventureQuery, createBranch, lastTurnId]);
+
+  const onRetry = useCallback(async () => {
+    setBranchError(null);
+    if (!adventureQuery.data || !lastTurnId) return;
+    try {
+      await retryBranch.mutateAsync({ turn_id: lastTurnId, name: null });
+    } catch (err) {
+      setBranchError(err instanceof Error ? err.message : 'Could not retry branch.');
+    }
+  }, [adventureQuery, retryBranch, lastTurnId]);
+
+  const onUndo = useCallback(async () => {
+    setBranchError(null);
+    if (!adventureQuery.data) return;
+    try {
+      await undoBranch.mutateAsync({ turn_id: lastTurnId });
+    } catch (err) {
+      setBranchError(err instanceof Error ? err.message : 'Could not undo turn.');
+    }
+  }, [adventureQuery, undoBranch, lastTurnId]);
+
+  const onRedo = useCallback(async () => {
+    setBranchError(null);
+    if (!adventureQuery.data) return;
+    try {
+      await redoBranch.mutateAsync({ turn_id: lastTurnId });
+    } catch (err) {
+      setBranchError(err instanceof Error ? err.message : 'Could not redo turn.');
+    }
+  }, [adventureQuery, redoBranch, lastTurnId]);
 
   // Render the API error state if the adventure cannot be loaded.
   if (adventureQuery.error) {
@@ -157,10 +260,39 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   const streamInterrupted = stream.error !== null && !isStreaming;
   const liveTurnId = stream.liveTurnId ?? TURN_FIXTURE.id;
 
+  const resolvedMechanicEvent = mechanicEvent;
+
+  // Effective settings power the live typography preview: when the
+  // player toggles theme / verbosity in the AdventureSettingsDrawer the
+  // page picks up the change without waiting for a refetch.
+  const resolvedTheme =
+    livePreview?.theme ??
+    effectiveSettingsQuery.data?.groups.find((g) => g.id === 'theme')?.effective_value ??
+    'system';
+  const resolvedVerbosity =
+    livePreview?.narration_verbosity ??
+    effectiveSettingsQuery.data?.groups.find((g) => g.id === 'narration_verbosity')?.effective_value ??
+    'balanced';
+
+  // Live typography preview: when the player toggles theme/verbosity in the
+  // AdventureSettingsDrawer the article re-renders with the new palette
+  // and line-height without waiting for the save mutation to settle.
+  // Pure computation; cheap enough that we recompute per render.
+  const previewStyle = buildTypographyPreviewStyle(resolvedTheme, resolvedVerbosity);
+
+  // `scenario.quests` is not yet on the API; the QuestLog renders an
+  // empty state until the seed worker ships quests. When the manifest
+  // adds them we surface the first three as a static list so the panel
+  // stays clickable.
+
+  const branchOpsPending = retryBranch.isPending || undoBranch.isPending || redoBranch.isPending;
+  const activeBranchId = branchTreeQuery.data?.active_branch_id ?? adventure.current_branch.id;
+  const branchTreeNodes = branchTreeQuery.data?.branches;
+
   return (
-    <div>
+    <div data-testid={ADVENTURE_PAGE_TESTIDS.surface}>
       <PageHeader
-        eyebrow={`Adventure #${adventure.id} · ${adventure.status}`}
+        eyebrow={`Adventure #${adventure.id} \u00B7 ${adventure.status}`}
         title={adventure.title}
         description={`Branch ${adventure.current_branch.name} (depth ${adventure.current_branch.depth}, version ${adventure.current_branch.version}).`}
         actions={
@@ -168,8 +300,16 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
             <Link to="/scenarios">
               <Button intent="ghost">Library</Button>
             </Link>
+            <Button
+              intent="ghost"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open per-adventure settings"
+              data-testid={ADVENTURE_PAGE_TESTIDS.settingsButton}
+            >
+              Settings
+            </Button>
             <Button intent="secondary" disabled={!lastTurnId || createBranch.isPending} onClick={() => void onFork()}>
-              {createBranch.isPending ? 'Forking…' : 'Fork branch'}
+              {createBranch.isPending ? 'Forking\u2026' : 'Fork branch'}
             </Button>
           </>
         }
@@ -187,7 +327,21 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
         </p>
       )}
 
-      <article style={cardStyle} aria-live="polite">
+      <BranchBar
+        tree={branchTreeNodes}
+        activeBranchId={activeBranchId}
+        isPending={branchOpsPending}
+        error={branchError ? { message: branchError } : null}
+        onRetry={() => void onRetry()}
+        onUndo={() => void onUndo()}
+        onRedo={() => void onRedo()}
+      />
+
+      <article
+        data-testid={ADVENTURE_PAGE_TESTIDS.liveRegion}
+        style={{ ...cardStyle, ...previewStyle }}
+        aria-live="polite"
+      >
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
           <Pill intent="muted" title={`Sequence #${TURN_FIXTURE.sequence_number}`}>
             Turn #{TURN_FIXTURE.sequence_number}
@@ -197,6 +351,12 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
               Streaming…
             </Pill>
           )}
+          <Pill intent="muted" title={`Theme: ${resolvedTheme}`}>
+            Theme: {String(resolvedTheme)}
+          </Pill>
+          <Pill intent="muted" title={`Narration verbosity: ${String(resolvedVerbosity)}`}>
+            Verbosity: {String(resolvedVerbosity)}
+          </Pill>
         </div>
         <div className="prose" style={{ margin: 0, minHeight: '4lh' }}>
           {isStreaming || stream.liveNarration.length > 0 ? (
@@ -240,7 +400,7 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
 
       {conflictError && (
         <p role="alert" style={errorPanel}>
-          {submitTurn.error?.message ?? 'The branch was updated elsewhere. Pulling the latest version…'}
+          {submitTurn.error?.message ?? 'The branch was updated elsewhere. Pulling the latest version\u2026'}
         </p>
       )}
       {submitTurn.error && !conflictError && (
@@ -263,7 +423,7 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
             id="composer"
             name="composer"
             rows={3}
-            placeholder="Describe what you do…"
+            placeholder="Describe what you do\u2026"
             value={freeText}
             onChange={(event) => setFreeText(event.target.value)}
             maxLength={2000}
@@ -289,23 +449,128 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
               type="submit"
               disabled={isSubmitting || (!selectedChoiceId && freeText.trim().length === 0)}
             >
-              {isSubmitting ? 'Submitting…' : 'Submit turn'}
+              {isSubmitting ? 'Submitting\u2026' : 'Submit turn'}
             </Button>
           </div>
         </form>
       </section>
+
+      <div
+        data-testid={ADVENTURE_PAGE_TESTIDS.worldGrid}
+        style={worldGridStyle}
+        aria-label="World panels"
+      >
+        <CharacterPanel
+          character={characterQuery.data}
+          isLoading={characterQuery.isLoading}
+          error={
+            characterQuery.error
+              ? { message: characterQuery.error.message }
+              : null
+          }
+        />
+        <NpcRoster
+          npcs={npcQuery.data}
+          isLoading={npcQuery.isLoading}
+          error={npcQuery.error ? { message: npcQuery.error.message } : null}
+        />
+        <InventoryPanel items={inventory.items} totals={inventory.totals} />
+        <MemoryPanel
+          recap={recapQuery.data}
+          isLoading={recapQuery.isLoading}
+          error={
+            recapQuery.error
+              ? {
+                  message: recapQuery.error.message,
+                  status: recapQuery.error instanceof ApiError ? recapQuery.error.status : undefined,
+                }
+              : null
+          }
+        />
+        <DiceClockPanel event={resolvedMechanicEvent} />
+        <QuestLog quests={quests} />
+      </div>
+
+      {isDrawerOpen && (
+        <AdventureSettingsDrawer
+          adventureId={adventureId}
+          branchId={adventure.current_branch.id}
+          adventureSettings={adventureSettingsQuery.data}
+          userSettings={playerSettingsQuery.data}
+          isLoading={adventureSettingsQuery.isLoading}
+          error={
+            adventureSettingsQuery.error instanceof ApiError
+              ? adventureSettingsQuery.error
+              : null
+          }
+          saving={updateAdventureSettings.isPending}
+          onChange={(groupId, value) => {
+            if (groupId === 'theme' || groupId === 'narration_verbosity') {
+              setLivePreview((prev) => ({
+                theme: prev?.theme,
+                narration_verbosity: prev?.narration_verbosity,
+                [groupId]: value,
+              }) as typeof prev);
+            }
+          }}
+          onSave={(body) => {
+            updateAdventureSettings.mutate(body, {
+              onSuccess: () => setDrawerOpen(false),
+            });
+          }}
+          onClose={() => setDrawerOpen(false)}
+        />
+      )}
     </div>
   );
 }
 
+function buildTypographyPreviewStyle(
+  theme: string | number | boolean,
+  verbosity: string | number | boolean,
+): CSSProperties {
+  // Resolve theme: dark/light flip a couple of high-contrast tokens. The
+  // actual palette comes from the design-system; we only override the
+  // variables the preview surface cares about.
+  const palette =
+    theme === 'dark'
+      ? { background: '#11151c', foreground: '#f1ecdf', accent: '#f0c050' }
+      : theme === 'light'
+        ? { background: '#fbf7ee', foreground: '#1c1b18', accent: '#5a3b14' }
+        : { background: 'var(--color-surface)', foreground: 'var(--color-foreground)', accent: 'var(--color-primary)' };
+
+  // Verbosity: terse = 0.92x line-height, balanced = 1.4 (default),
+  // rich = 1.6 with more letter-spacing.
+  const lineHeight = verbosity === 'terse' ? 1.32 : verbosity === 'rich' ? 1.6 : 1.4;
+  const letterSpacing = verbosity === 'rich' ? '0.01em' : '0';
+
+  return {
+    background: palette.background,
+    color: palette.foreground,
+    lineHeight,
+    letterSpacing,
+    // Accent token is referenced by suggested choices; the page itself
+    // doesn't paint the accent directly, but exposing it lets a future
+    // iteration render it inline.
+    ['--color-preview-accent' as string]: palette.accent,
+  };
+}
+
 const cardStyle: CSSProperties = {
-  background: 'var(--color-surface)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-md)',
   padding: 'var(--space-5) var(--space-6)',
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--space-4)',
+  marginTop: 'var(--space-4)',
+};
+
+const worldGridStyle: CSSProperties = {
+  display: 'grid',
+  gap: 'var(--space-4)',
+  marginTop: 'var(--space-5)',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
 };
 
 const composerStyle: CSSProperties = {
