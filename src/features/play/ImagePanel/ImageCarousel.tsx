@@ -68,13 +68,6 @@ const slideStyle: CSSProperties = {
   minHeight: 'var(--control-touch-min)',
 };
 
-const figureMarginStyle: CSSProperties = {
-  margin: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 'var(--space-1)',
-};
-
 const imgStyle: CSSProperties = {
   width: '100%',
   height: 'auto',
