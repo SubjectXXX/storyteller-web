@@ -361,7 +361,23 @@ export const ADVENTURE_FIXTURE: AdventureResource = {
     version: 1,
     parent_branch_id: null,
     parent_turn_id: null,
-    state: { location: 'archive' },
+    state: {
+      location: 'archive',
+      inventory: [
+        { id: 'item-letter', name: 'Cartographer\u2019s last letter', description: 'A folded note in the cartographer\u2019s hand.', weight: 0, count: 1, slot: 'quest', icon: null },
+        { id: 'item-lantern', name: 'Tin lantern', description: 'Reliable, but heavy.', weight: 1.2, count: 1, slot: 'carry', icon: 'lantern' },
+        { id: 'item-coin', name: 'Silver coin', description: 'A token from a foreign port.', weight: 0.02, count: 6, slot: 'stored', icon: 'coin' },
+      ],
+      mechanics: {
+        kind: 'clock',
+        clock_id: 'suspicion',
+        label: 'Suspicion',
+        from: 1,
+        to: 2,
+        max: 6,
+        reason: 'Imogen saw you read the letter.',
+      },
+    },
   },
   last_played_at: '2026-09-22T18:00:00Z',
   created_at: '2026-09-22T17:00:00Z',
@@ -441,4 +457,433 @@ export const SETTINGS_RESOURCE_FIXTURE: SettingsResource = {
   typewriter_mode: true,
   content_warnings: [],
   updated_at: '2026-09-22T17:00:00Z',
+};
+
+// ---------------------------------------------------------------------------
+// Stage 4 — Game engine and branching fixtures.
+//
+// The SPA must render before the API worker ships the S4-T01..T05 endpoints,
+// so we ship fixture data that mirrors the wire contract documented at the
+// top of each hook. Swapping fixtures for the live fetcher is a one-line
+// change in `ApiClientProvider` once the API exposes the endpoints.
+// ---------------------------------------------------------------------------
+
+// ---------- Character (S4-T01) --------------------------------------------
+
+export interface CharacterStat {
+  readonly id: string;
+  readonly label: string;
+  readonly value: number;
+  readonly max: number | null;
+  readonly icon: string | null;
+}
+
+export interface CharacterTrait {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string | null;
+}
+
+export interface CharacterResource {
+  readonly id: number;
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly name: string;
+  readonly role: string;
+  readonly portrait_url: string | null;
+  readonly stats: ReadonlyArray<CharacterStat>;
+  readonly traits: ReadonlyArray<CharacterTrait>;
+  readonly notes: string | null;
+}
+
+export const CHARACTER_FIXTURE: CharacterResource = {
+  id: 1,
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  name: 'Wren Avery',
+  role: 'Cartographer',
+  portrait_url: null,
+  stats: [
+    { id: 'stamina', label: 'Stamina', value: 14, max: 20, icon: 'stamina' },
+    { id: 'focus', label: 'Focus', value: 9, max: 12, icon: 'focus' },
+    { id: 'reputation', label: 'Reputation', value: 5, max: null, icon: 'reputation' },
+  ],
+  traits: [
+    { id: 't-cartographer', label: 'Cartographer', description: 'Reads maps as if they were letters.' },
+    { id: 't-paranoid', label: 'Cautious', description: 'Asks twice before committing.' },
+  ],
+  notes: 'Currently in the archive, chasing the cartographer\u2019s last letter.',
+};
+
+// ---------- NPC roster (S4-T01) -------------------------------------------
+
+export type NpcRelationshipKind = 'ally' | 'rival' | 'family' | 'neutral' | 'unknown';
+
+export interface NpcRelationship {
+  readonly target_npc_id: number;
+  readonly target_name: string;
+  readonly kind: NpcRelationshipKind;
+  readonly affinity: number;
+}
+
+export interface NpcResource {
+  readonly id: number;
+  readonly name: string;
+  readonly role: string;
+  readonly disposition: string;
+  readonly location: string | null;
+  readonly portrait_url: string | null;
+  readonly tags: ReadonlyArray<string>;
+  readonly alive: boolean;
+  readonly relationships: ReadonlyArray<NpcRelationship>;
+}
+
+export const NPC_ROSTER_FIXTURE: ReadonlyArray<NpcResource> = [
+  {
+    id: 11,
+    name: 'Imogen Wren',
+    role: 'Sister',
+    disposition: 'wary',
+    location: 'archive door',
+    portrait_url: null,
+    tags: ['family'],
+    alive: true,
+    relationships: [
+      { target_npc_id: 12, target_name: 'Bram Hark', kind: 'rival', affinity: -2 },
+    ],
+  },
+  {
+    id: 12,
+    name: 'Bram Hark',
+    role: 'Rival cartographer',
+    disposition: 'smug',
+    location: 'upper gallery',
+    portrait_url: null,
+    tags: ['rival'],
+    alive: true,
+    relationships: [
+      { target_npc_id: 11, target_name: 'Imogen Wren', kind: 'rival', affinity: -2 },
+    ],
+  },
+  {
+    id: 13,
+    name: 'Old Magnusson',
+    role: 'Curator',
+    disposition: 'neutral',
+    location: 'reading room',
+    portrait_url: null,
+    tags: ['ally'],
+    alive: true,
+    relationships: [],
+  },
+];
+
+// ---------- Recap (S4-T05, served by Stage 5; placeholder for now) -------
+
+export interface RecapTurn {
+  readonly turn_id: number;
+  readonly sequence_number: number;
+  readonly headline: string;
+  readonly happened_at: string;
+}
+
+export interface RecapResource {
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly generated_at: string;
+  readonly turns: ReadonlyArray<RecapTurn>;
+}
+
+export const RECAP_FIXTURE: RecapResource = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  generated_at: '2026-09-22T18:00:00Z',
+  turns: [
+    { turn_id: 1, sequence_number: 1, headline: 'You arrive at the archive.', happened_at: '2026-09-22T17:30:00Z' },
+    { turn_id: 2, sequence_number: 2, headline: 'Imogen stops you at the door.', happened_at: '2026-09-22T17:45:00Z' },
+  ],
+};
+
+// ---------- Branch tree + ops (S4-T03) ------------------------------------
+
+export interface BranchTreeNode {
+  readonly id: number;
+  readonly name: string;
+  readonly depth: number;
+  readonly parent_branch_id: number | null;
+  readonly parent_turn_id: number | null;
+  readonly is_active: boolean;
+  readonly can_retry: boolean;
+  readonly can_undo: boolean;
+  readonly can_redo: boolean;
+  readonly turn_count: number;
+}
+
+export interface BranchTreeResponse {
+  readonly adventure_id: number;
+  readonly active_branch_id: number;
+  readonly branches: ReadonlyArray<BranchTreeNode>;
+}
+
+export const BRANCH_TREE_FIXTURE: BranchTreeResponse = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  active_branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  branches: [
+    {
+      id: 1,
+      name: 'main',
+      depth: 0,
+      parent_branch_id: null,
+      parent_turn_id: null,
+      is_active: true,
+      can_retry: true,
+      can_undo: true,
+      can_redo: false,
+      turn_count: 2,
+    },
+    {
+      id: 2,
+      name: 'fork-1',
+      depth: 1,
+      parent_branch_id: 1,
+      parent_turn_id: 1,
+      is_active: false,
+      can_retry: false,
+      can_undo: false,
+      can_redo: false,
+      turn_count: 1,
+    },
+  ],
+};
+
+export interface BranchRetryRequest {
+  readonly turn_id: number;
+  readonly name?: string | null;
+}
+
+export interface BranchUndoRequest {
+  readonly turn_id?: number | null;
+}
+
+export interface BranchRedoRequest {
+  readonly turn_id?: number | null;
+}
+
+// ---------- Adventure settings (S4-T05 + S4-T06) ---------------------------
+
+export type SettingGroupState = 'inherit' | 'override' | 'reset' | 'locked';
+export type SettingSource = 'user' | 'adventure' | 'scenario';
+
+export interface AdventureSettingGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly value: string | number | boolean;
+  readonly effective_value: string | number | boolean;
+  readonly state: SettingGroupState;
+  readonly source: SettingSource;
+  readonly options?: ReadonlyArray<string>;
+  readonly locked_reason?: string | null;
+}
+
+export interface AdventureSettingsResource {
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly groups: ReadonlyArray<AdventureSettingGroup>;
+  readonly updated_at: string;
+}
+
+export interface AdventureSettingsGroupUpdate {
+  readonly id: string;
+  readonly state: SettingGroupState;
+  readonly value: string | number | boolean | null;
+}
+
+export interface AdventureSettingsUpdateRequest {
+  readonly branch_id?: number | null;
+  readonly groups: ReadonlyArray<AdventureSettingsGroupUpdate>;
+}
+
+export interface EffectiveSettingsResource {
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly groups: ReadonlyArray<AdventureSettingGroup>;
+  readonly updated_at: string;
+}
+
+export const ADVENTURE_SETTINGS_FIXTURE: AdventureSettingsResource = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  updated_at: '2026-09-22T17:00:00Z',
+  groups: [
+    {
+      id: 'typewriter_mode',
+      label: 'Typewriter reveal',
+      value: true,
+      effective_value: true,
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'theme',
+      label: 'Theme',
+      value: 'system',
+      effective_value: 'system',
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'narration_verbosity',
+      label: 'Narration verbosity',
+      value: 'balanced',
+      effective_value: 'balanced',
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'content_rating',
+      label: 'Content rating',
+      value: 'mature',
+      effective_value: 'mature',
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'action_mode',
+      label: 'Action mode',
+      value: 'guided',
+      effective_value: 'guided',
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'world_genre',
+      label: 'World genre preference',
+      value: 'any',
+      effective_value: 'any',
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'language',
+      label: 'Narration language',
+      value: 'en',
+      effective_value: 'en',
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'suggested_choices_count',
+      label: 'Suggested choices',
+      value: 3,
+      effective_value: 3,
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'dice_visibility',
+      label: 'Dice visibility',
+      value: 'summary',
+      effective_value: 'summary',
+      state: 'inherit',
+      source: 'user',
+    },
+    {
+      id: 'npc_dialogue_density',
+      label: 'NPC dialogue density',
+      value: 'natural',
+      effective_value: 'natural',
+      state: 'reset',
+      source: 'scenario',
+      locked_reason: 'The active scenario locks this control to scenario defaults.',
+    },
+  ],
+};
+
+export const EFFECTIVE_SETTINGS_FIXTURE: EffectiveSettingsResource = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  updated_at: '2026-09-22T17:00:00Z',
+  groups: ADVENTURE_SETTINGS_FIXTURE.groups.map((g) => ({ ...g })),
+};
+
+// ---------- Player settings (S4-T06) --------------------------------------
+
+export interface PlayerSettingsResource {
+  readonly typewriter_mode: boolean;
+  readonly theme: 'light' | 'dark' | 'system';
+  readonly content_rating: 'all-ages' | 'mature' | 'restricted';
+  readonly action_mode: 'guided' | 'sandbox' | 'ask';
+  readonly world_genre: 'romance' | 'mystery' | 'hope' | 'conflict' | 'any';
+  readonly language: string;
+  readonly narration_verbosity: 'terse' | 'balanced' | 'rich';
+  readonly suggested_choices_count: number;
+  readonly dice_visibility: 'hidden' | 'summary' | 'detailed';
+  readonly npc_dialogue_density: 'minimal' | 'natural' | 'verbose';
+  readonly updated_at: string;
+}
+
+export interface PlayerSettingsUpdateRequest {
+  readonly typewriter_mode?: boolean;
+  readonly theme?: PlayerSettingsResource['theme'];
+  readonly content_rating?: PlayerSettingsResource['content_rating'];
+  readonly action_mode?: PlayerSettingsResource['action_mode'];
+  readonly world_genre?: PlayerSettingsResource['world_genre'];
+  readonly language?: string;
+  readonly narration_verbosity?: PlayerSettingsResource['narration_verbosity'];
+  readonly suggested_choices_count?: number;
+  readonly dice_visibility?: PlayerSettingsResource['dice_visibility'];
+  readonly npc_dialogue_density?: PlayerSettingsResource['npc_dialogue_density'];
+}
+
+export const PLAYER_SETTINGS_FIXTURE: PlayerSettingsResource = {
+  typewriter_mode: true,
+  theme: 'system',
+  content_rating: 'mature',
+  action_mode: 'guided',
+  world_genre: 'any',
+  language: 'en',
+  narration_verbosity: 'balanced',
+  suggested_choices_count: 3,
+  dice_visibility: 'summary',
+  npc_dialogue_density: 'natural',
+  updated_at: '2026-09-22T17:00:00Z',
+};
+
+// ---------- Mechanics payload (S4-T02) ------------------------------------
+//
+// `TurnResource.state_after.mechanics` and (later) `usage.mechanics` follow
+// the same `MechanicEvent` shape. The fixture embeds a clock tick so the
+// `<DiceClockPanel>` has something to render during dev.
+
+export interface DiceRollFixture {
+  readonly kind: 'dice';
+  readonly formula: string;
+  readonly total: number;
+  readonly rolls: ReadonlyArray<number>;
+  readonly modifier: number;
+  readonly success: 'pass' | 'fail' | 'mixed' | null;
+  readonly reason: string | null;
+  readonly actor_id: string | null;
+}
+
+export interface ClockTickFixture {
+  readonly kind: 'clock';
+  readonly clock_id: string;
+  readonly label: string;
+  readonly from: number;
+  readonly to: number;
+  readonly max: number;
+  readonly reason: string | null;
+}
+
+export type MechanicEventFixture = DiceRollFixture | ClockTickFixture;
+
+export const CLOCK_TICK_FIXTURE: ClockTickFixture = {
+  kind: 'clock',
+  clock_id: 'suspicion',
+  label: 'Suspicion',
+  from: 1,
+  to: 2,
+  max: 6,
+  reason: 'Imogen saw you read the letter.',
 };

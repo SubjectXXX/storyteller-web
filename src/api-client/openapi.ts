@@ -23,8 +23,16 @@
 import {
   ADVENTURE_FIXTURE,
   ADVENTURE_LIST_FIXTURE,
+  ADVENTURE_SETTINGS_FIXTURE,
   AUTH_FIXTURE,
+  BRANCH_TREE_FIXTURE,
+  CHARACTER_FIXTURE,
+  CLOCK_TICK_FIXTURE,
+  EFFECTIVE_SETTINGS_FIXTURE,
+  NPC_ROSTER_FIXTURE,
   PLAY_FIXTURE,
+  PLAYER_SETTINGS_FIXTURE,
+  RECAP_FIXTURE,
   REFERRAL_RESOURCE_FIXTURE,
   SCENARIO_RESOURCE_FIXTURES,
   SCENARIO_VERSION_FIXTURE,
@@ -32,16 +40,40 @@ import {
   TURN_FIXTURE,
   WALLET_RESOURCE_FIXTURE,
   type AdventureResource,
+  type AdventureSettingGroup,
+  type AdventureSettingsResource,
+  type AdventureSettingsUpdateRequest,
   type AdventureStatus,
   type AuthTokenResource,
+  type BranchRedoRequest,
   type BranchResource,
+  type BranchRetryRequest,
+  type BranchTreeNode,
+  type BranchTreeResponse,
+  type BranchUndoRequest,
+  type CharacterResource,
+  type CharacterStat,
+  type CharacterTrait,
+  type ClockTickFixture,
+  type DiceRollFixture,
+  type EffectiveSettingsResource,
+  type MechanicEventFixture,
+  type NpcRelationship,
+  type NpcRelationshipKind,
+  type NpcResource,
+  type PlayerSettingsResource,
+  type PlayerSettingsUpdateRequest,
   type PlayTurnFixture,
+  type RecapResource,
+  type RecapTurn,
   type ReferralResource,
   type ScenarioFixture,
   type ScenarioResource,
   type ScenarioVersionResource,
   type SettingsResource,
   type SettingGroupFixture,
+  type SettingGroupState,
+  type SettingSource,
   type SuggestedChoice,
   type TurnResource,
   type UserResource,
@@ -133,6 +165,52 @@ export interface SettingsUpdateRequest {
   readonly typewriter_mode?: boolean;
   readonly content_warnings?: ReadonlyArray<string>;
 }
+
+// ---------- Stage 4 — World panels (S4-T01) ------------------------------
+
+/**
+ * `GET /api/adventures/{id}/character` — the active branch's player
+ * character resource (S4-T01). The 503 case signals "scenario does not
+ * model characters" and is handled by rendering an `EmptyState` rather
+ * than a hard error.
+ */
+export type CharacterDetailResponse = CharacterResource;
+export type NpcListResponse = ReadonlyArray<NpcResource>;
+
+/**
+ * `GET /api/adventures/{id}/recap` (Stage 5 placeholder). The endpoint is
+ * not yet wired on the API; a 404 means the player should see the
+ * "Coming in Stage 5" placeholder. The contract lives in the SPA today so
+ * swapping the API worker in is a one-line change.
+ */
+export type RecapResponse = RecapResource;
+
+// ---------- Stage 4 — Branch tree + ops (S4-T03) -------------------------
+
+export type BranchTreeResponseShape = BranchTreeResponse;
+export type BranchOpResponse = BranchResource;
+
+/**
+ * `POST /api/adventures/{adventureId}/branches/{branchId}/retry`
+ * Body: `BranchRetryRequest`; returns `BranchOpResponse`.
+ */
+export type BranchRetryRequestBody = BranchRetryRequest;
+export type BranchUndoRequestBody = BranchUndoRequest;
+export type BranchRedoRequestBody = BranchRedoRequest;
+
+// ---------- Stage 4 — Settings (S4-T05 + S4-T06) -------------------------
+
+export type AdventureSettingsResponse = AdventureSettingsResource;
+export type AdventureSettingsRequest = AdventureSettingsUpdateRequest;
+export type EffectiveSettingsResponse = EffectiveSettingsResource;
+
+/**
+ * `GET /api/me/settings/player-defaults` — the user-defaults document that
+ * powers `<UserSettingsPage>`. Distinct from `SettingsResponse` (the S2
+ * preferences document) because S4 introduces ten new user-default keys.
+ */
+export type PlayerSettingsResponse = PlayerSettingsResource;
+export type PlayerSettingsUpdateRequestBody = PlayerSettingsUpdateRequest;
 
 // ---------- Legacy play-turn shape (used by PlaySurfacePlaceholder) -------
 
@@ -353,6 +431,53 @@ export interface ApiClient {
     body: SettingsUpdateRequest,
     options?: RequestOptions,
   ) => Promise<SettingsResponse>;
+
+  // Stage 4 — World panels (S4-T01)
+  readonly getCharacter: (adventureId: number, options?: RequestOptions) => Promise<CharacterDetailResponse>;
+  readonly getNpcs: (adventureId: number, options?: RequestOptions) => Promise<NpcListResponse>;
+  readonly getRecap: (adventureId: number, options?: RequestOptions) => Promise<RecapResponse>;
+
+  // Stage 4 — Branch tree + ops (S4-T03)
+  readonly getBranchTree: (adventureId: number, options?: RequestOptions) => Promise<BranchTreeResponseShape>;
+  readonly retryBranch: (
+    adventureId: number,
+    branchId: number,
+    body: BranchRetryRequestBody,
+    options?: RequestOptions,
+  ) => Promise<BranchOpResponse>;
+  readonly undoBranch: (
+    adventureId: number,
+    branchId: number,
+    body: BranchUndoRequestBody,
+    options?: RequestOptions,
+  ) => Promise<BranchOpResponse>;
+  readonly redoBranch: (
+    adventureId: number,
+    branchId: number,
+    body: BranchRedoRequestBody,
+    options?: RequestOptions,
+  ) => Promise<BranchOpResponse>;
+
+  // Stage 4 — Settings (S4-T05 + S4-T06)
+  readonly getAdventureSettings: (
+    adventureId: number,
+    options?: RequestOptions,
+  ) => Promise<AdventureSettingsResponse>;
+  readonly updateAdventureSettings: (
+    adventureId: number,
+    body: AdventureSettingsRequest,
+    options?: RequestOptions,
+  ) => Promise<AdventureSettingsResponse>;
+  readonly getEffectiveSettings: (
+    adventureId: number,
+    branchId: number | undefined,
+    options?: RequestOptions,
+  ) => Promise<EffectiveSettingsResponse>;
+  readonly getPlayerSettings: (options?: RequestOptions) => Promise<PlayerSettingsResponse>;
+  readonly updatePlayerSettings: (
+    body: PlayerSettingsUpdateRequestBody,
+    options?: RequestOptions,
+  ) => Promise<PlayerSettingsResponse>;
 
   // AI provider (public, no auth)
   readonly getAiStatus: (options?: RequestOptions) => Promise<AiStatusResponse>;
@@ -967,6 +1092,118 @@ export function fixtureFetcher(): Fetcher {
       } satisfies AiStatusResponse;
     }
 
+    // ----- Stage 4: World panels (S4-T01) -----
+    if (method === 'GET' && /^\/adventures\/\d+\/character$/.test(path_)) {
+      return CHARACTER_FIXTURE satisfies CharacterResource;
+    }
+    if (method === 'GET' && /^\/adventures\/\d+\/npcs$/.test(path_)) {
+      return NPC_ROSTER_FIXTURE satisfies NpcListResponse;
+    }
+    if (method === 'GET' && /^\/adventures\/\d+\/recap$/.test(path_)) {
+      // Stage 5 placeholder — fixture mode returns a populated recap so the
+      // player can see what the panel will look like. The API worker will
+      // ship a real implementation.
+      return RECAP_FIXTURE satisfies RecapResponse;
+    }
+
+    // ----- Stage 4: Branch tree + ops (S4-T03) -----
+    if (method === 'GET' && /^\/adventures\/\d+\/branches$/.test(path_) && !/\/branches\/\d+\/(retry|undo|redo)$/.test(path_)) {
+      return BRANCH_TREE_FIXTURE satisfies BranchTreeResponse;
+    }
+    const branchOpMatch = path_.match(/^\/adventures\/(\d+)\/branches\/(\d+)\/(retry|undo|redo)$/);
+    if (branchOpMatch && method === 'POST') {
+      const [, , branchId, op] = branchOpMatch;
+      const id = Number(branchId);
+      const parent = BRANCH_TREE_FIXTURE.branches.find((b) => b.id === id) ?? BRANCH_TREE_FIXTURE.branches[0];
+      if (!parent) {
+        throw new ApiError(404, { message: `Branch ${id} not found`, code: 'not_found' });
+      }
+      if (op === 'retry' && !parent.can_retry) {
+        throw new ApiError(422, {
+          message: 'Branch does not allow retry.',
+          code: 'branch_op_not_allowed',
+        });
+      }
+      if (op === 'undo' && !parent.can_undo) {
+        throw new ApiError(422, {
+          message: 'Branch does not allow undo.',
+          code: 'branch_op_not_allowed',
+        });
+      }
+      if (op === 'redo' && !parent.can_redo) {
+        throw new ApiError(422, {
+          message: 'Branch does not allow redo.',
+          code: 'branch_op_not_allowed',
+        });
+      }
+      const next: BranchResource = {
+        ...ADVENTURE_FIXTURE.current_branch,
+        id: parent.id,
+        name: parent.name,
+        depth: parent.depth,
+        version: ADVENTURE_FIXTURE.current_branch.version + 1,
+        parent_branch_id: parent.parent_branch_id,
+        parent_turn_id: parent.parent_turn_id,
+        state: { ...ADVENTURE_FIXTURE.current_branch.state },
+      };
+      return next satisfies BranchResource;
+    }
+
+    // ----- Stage 4: Settings (S4-T05 + S4-T06) -----
+    if (method === 'GET' && /^\/adventures\/\d+\/settings$/.test(path_)) {
+      return ADVENTURE_SETTINGS_FIXTURE satisfies AdventureSettingsResource;
+    }
+    if (method === 'PUT' && /^\/adventures\/\d+\/settings$/.test(path_)) {
+      const body = (options.body ?? {}) as AdventureSettingsUpdateRequest;
+      const incoming = new Map(body.groups.map((g) => [g.id, g] as const));
+      const groups = ADVENTURE_SETTINGS_FIXTURE.groups.map((group) => {
+        const patch = incoming.get(group.id);
+        if (!patch) return group;
+        if (patch.state === 'override' && patch.value !== null) {
+          return {
+            ...group,
+            value: patch.value,
+            effective_value: patch.value,
+            state: 'override' as const,
+            source: 'adventure' as const,
+          };
+        }
+        if (patch.state === 'reset') {
+          return {
+            ...group,
+            state: 'reset' as const,
+            source: 'scenario' as const,
+          };
+        }
+        return { ...group, state: 'inherit' as const, source: 'user' as const };
+      });
+      return {
+        ...ADVENTURE_SETTINGS_FIXTURE,
+        groups,
+        updated_at: new Date().toISOString(),
+      } satisfies AdventureSettingsResource;
+    }
+    if (method === 'GET' && path_ === '/me/settings/effective') {
+      const query = path.includes('?') ? path.slice(path.indexOf('?') + 1) : '';
+      const params = new URLSearchParams(query);
+      const branchId = Number(params.get('branch_id') ?? ADVENTURE_FIXTURE.current_branch.id);
+      return {
+        ...EFFECTIVE_SETTINGS_FIXTURE,
+        branch_id: Number.isFinite(branchId) ? branchId : ADVENTURE_FIXTURE.current_branch.id,
+      } satisfies EffectiveSettingsResource;
+    }
+    if (method === 'GET' && path_ === '/me/settings/player-defaults') {
+      return PLAYER_SETTINGS_FIXTURE satisfies PlayerSettingsResource;
+    }
+    if (method === 'PUT' && path_ === '/me/settings/player-defaults') {
+      const body = (options.body ?? {}) as PlayerSettingsUpdateRequest;
+      return {
+        ...PLAYER_SETTINGS_FIXTURE,
+        ...body,
+        updated_at: new Date().toISOString(),
+      } satisfies PlayerSettingsResource;
+    }
+
     // ----- Legacy play-turn (kept for PlaySurfacePlaceholder) -----
     if (method === 'GET' && /^\/scenarios\/[^/]+\/play-turn$/.test(path_)) {
       return PLAY_FIXTURE satisfies PlayTurnFixture;
@@ -1082,6 +1319,81 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
     updateSettings: (body, options) =>
       fetcher('/me/settings', { ...options, method: 'PUT', body }) as Promise<SettingsResponse>,
 
+    // Stage 4 — World panels (S4-T01)
+    getCharacter: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/character`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<CharacterDetailResponse>,
+    getNpcs: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/npcs`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<NpcListResponse>,
+    getRecap: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/recap`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<RecapResponse>,
+
+    // Stage 4 — Branch tree + ops (S4-T03)
+    getBranchTree: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/branches`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<BranchTreeResponseShape>,
+    retryBranch: (adventureId, branchId, body, options) =>
+      fetcher(`/adventures/${adventureId}/branches/${branchId}/retry`, {
+        ...options,
+        method: 'POST',
+        body,
+      }) as Promise<BranchOpResponse>,
+    undoBranch: (adventureId, branchId, body, options) =>
+      fetcher(`/adventures/${adventureId}/branches/${branchId}/undo`, {
+        ...options,
+        method: 'POST',
+        body,
+      }) as Promise<BranchOpResponse>,
+    redoBranch: (adventureId, branchId, body, options) =>
+      fetcher(`/adventures/${adventureId}/branches/${branchId}/redo`, {
+        ...options,
+        method: 'POST',
+        body,
+      }) as Promise<BranchOpResponse>,
+
+    // Stage 4 — Settings (S4-T05 + S4-T06)
+    getAdventureSettings: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/settings`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<AdventureSettingsResponse>,
+    updateAdventureSettings: (adventureId, body, options) =>
+      fetcher(`/adventures/${adventureId}/settings`, {
+        ...options,
+        method: 'PUT',
+        body,
+      }) as Promise<AdventureSettingsResponse>,
+    getEffectiveSettings: (adventureId, branchId, options) => {
+      const params = new URLSearchParams();
+      params.set('adventure_id', String(adventureId));
+      if (typeof branchId === 'number') params.set('branch_id', String(branchId));
+      return fetcher(`/me/settings/effective?${params.toString()}`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<EffectiveSettingsResponse>;
+    },
+    getPlayerSettings: (options) =>
+      fetcher('/me/settings/player-defaults', {
+        ...options,
+        method: 'GET',
+      }) as Promise<PlayerSettingsResponse>,
+    updatePlayerSettings: (body, options) =>
+      fetcher('/me/settings/player-defaults', {
+        ...options,
+        method: 'PUT',
+        body,
+      }) as Promise<PlayerSettingsResponse>,
+
     // AI provider (public)
     getAiStatus: (options) =>
       fetcher('/admin/ai/status', { ...options, method: 'GET' }) as Promise<AiStatusResponse>,
@@ -1149,15 +1461,50 @@ function isNetworkError(err: unknown): boolean {
 // Re-export shapes for convenience.
 export type {
   AdventureResource,
+  AdventureSettingsResource,
+  AdventureSettingsUpdateRequest,
+  AdventureSettingGroup,
   AdventureStatus,
   AuthTokenResource,
+  BranchRedoRequest,
   BranchResource,
+  BranchRetryRequest,
+  BranchTreeNode,
+  BranchTreeResponse,
+  BranchUndoRequest,
+  CharacterResource,
+  CharacterStat,
+  CharacterTrait,
+  ClockTickFixture,
+  DiceRollFixture,
+  EffectiveSettingsResource,
+  MechanicEventFixture,
+  NpcRelationship,
+  NpcRelationshipKind,
+  NpcResource,
+  PlayerSettingsResource,
+  PlayerSettingsUpdateRequest,
+  RecapResource,
+  RecapTurn,
   ReferralResource,
   ScenarioResource,
   ScenarioVersionResource,
   SettingsResource,
+  SettingGroupState,
+  SettingSource,
   SuggestedChoice,
   TurnResource,
   UserResource,
   WalletResource,
+};
+
+export {
+  ADVENTURE_SETTINGS_FIXTURE,
+  BRANCH_TREE_FIXTURE,
+  CHARACTER_FIXTURE,
+  CLOCK_TICK_FIXTURE,
+  EFFECTIVE_SETTINGS_FIXTURE,
+  NPC_ROSTER_FIXTURE,
+  PLAYER_SETTINGS_FIXTURE,
+  RECAP_FIXTURE,
 };
