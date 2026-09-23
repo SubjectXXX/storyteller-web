@@ -22,3 +22,20 @@ export {
 } from './useAdventures';
 export { useAiStatus } from './useAiStatus';
 export { useAuth } from './useAuth';
+
+// Stage 5 — Memory & context (S5-T01..S5-T02)
+export {
+  memoryKeys,
+  useMemoryLore,
+  useMemoryPinned,
+  useMemoryRecap,
+  type UseMemoryLoreResult,
+} from './useMemory';
+
+// Stage 6 — Visual generation (S6-T01..S6-T02)
+export {
+  imageKeys,
+  useImageCarousel,
+  useImageJob,
+  type UseImageJobResult,
+} from './useImageGen';
