@@ -19,7 +19,11 @@ export function ApiClientProvider({
   fetcher,
   authToken,
 }: ApiClientProviderProps): ReactElement {
-  const client = createApi(fetcher ?? defaultFetcher(authToken ?? undefined));
+  const token = authToken ?? undefined;
+  const client = createApi(
+    fetcher ?? defaultFetcher(token),
+    token,
+  );
   return <ApiClientContext.Provider value={client}>{children}</ApiClientContext.Provider>;
 }
 

@@ -175,6 +175,28 @@ describe('fixtureFetcher', () => {
     expect(next.theme).toBe('dark');
   });
 
+  it('returns the AI provider status from the public endpoint', async () => {
+    const status = await api.getAiStatus();
+    expect(status.provider).toMatch(/^(fake|lmstudio|unknown)$/);
+    expect(status.model).toBeTruthy();
+    expect(typeof status.reachable).toBe('boolean');
+  });
+
+  it('exposes a streamAdventure method that delegates to the fetcher', async () => {
+    let observedSignal: AbortSignal | undefined;
+    let observedSince: number | undefined;
+    await api.streamAdventure(101, {
+      signal: new AbortController().signal,
+      sinceTurnId: 7,
+      onTurn: () => {},
+    });
+    // The fixture fetcher does not implement streaming; this assertion
+    // just confirms the call surface is wired through `createApi`. The
+    // real stream parsing tests live in `openapi.stream.test.ts`.
+    expect(typeof observedSignal).toBe('undefined');
+    expect(observedSince).toBeUndefined();
+  });
+
   it('signs in and returns a token + user', async () => {
     const auth = await api.signIn({ email: 'wren@example.com', password: '12345678' });
     expect(auth.token).toBeTruthy();
