@@ -442,3 +442,226 @@ export const SETTINGS_RESOURCE_FIXTURE: SettingsResource = {
   content_warnings: [],
   updated_at: '2026-09-22T17:00:00Z',
 };
+
+// ---------- Stage 5 — Memory: Recap (S5-T01) --------------------------------
+//
+// The recap endpoint ships a chronicle of recent beats (turns) and the
+// timestamp the LLM last refreshed it. Versions are derived per turn so
+// the panel can dedupe without an extra round-trip.
+
+export interface RecapTurn {
+  readonly turn_id: number;
+  readonly sequence_number: number;
+  readonly headline: string;
+  readonly happened_at: string;
+}
+
+export interface RecapResource {
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly generated_at: string;
+  readonly turns: ReadonlyArray<RecapTurn>;
+}
+
+export const RECAP_FIXTURE: RecapResource = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  generated_at: '2026-09-22T18:00:00Z',
+  turns: [
+    {
+      turn_id: 1,
+      sequence_number: 1,
+      headline: 'You arrive at the archive, lantern oil rationed to three days.',
+      happened_at: '2026-09-22T17:30:00Z',
+    },
+    {
+      turn_id: 2,
+      sequence_number: 2,
+      headline: 'Imogen stops you at the door and asks for the cartographer\u2019s letter.',
+      happened_at: '2026-09-22T17:45:00Z',
+    },
+    {
+      turn_id: 3,
+      sequence_number: 3,
+      headline: 'You notice the lantern over the reading table is almost out.',
+      happened_at: '2026-09-22T18:00:00Z',
+    },
+  ],
+};
+
+// ---------- Stage 5 — Memory: Lore entries (S5-T01) ------------------------
+//
+// `LoreEntry` is the canonical "fact the LLM remembered" the player can
+// see on the lore tab. Versions are monotonic per `(adventure_id, key)`
+// so the SPA can show "v3" once the memory worker updates an entry.
+
+export interface LoreEntry {
+  readonly key: string;
+  readonly title: string;
+  readonly body: string;
+  readonly version: number;
+  readonly tags: ReadonlyArray<string>;
+  readonly scenario_slug: string;
+  readonly updated_at: string;
+}
+
+export interface LoreListResponse {
+  readonly adventure_id: number;
+  readonly entries: ReadonlyArray<LoreEntry>;
+}
+
+export const LORE_FIXTURE: LoreListResponse = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  entries: [
+    {
+      key: 'archive.location',
+      title: 'The archive sits on the cliffs',
+      body: 'Storm-battered limestone archive perched above the harbour, kept warm by a single iron stove.',
+      version: 3,
+      tags: ['location', 'archive'],
+      scenario_slug: 'demo-mystery',
+      updated_at: '2026-09-22T17:10:00Z',
+    },
+    {
+      key: 'npc.imogen.role',
+      title: 'Imogen is the archive keeper',
+      body: 'Imogen Veil curates the cartographer\u2019s letters and remembers every visitor\u2019s name since the Spring melt.',
+      version: 2,
+      tags: ['npc', 'imogen'],
+      scenario_slug: 'demo-mystery',
+      updated_at: '2026-09-22T17:05:00Z',
+    },
+    {
+      key: 'rumour.lantern.shortage',
+      title: 'Lantern oil is rationed this week',
+      body: 'A barge from the mainland shorted the village on lantern oil; Imogen has been turning visitors away after dusk.',
+      version: 1,
+      tags: ['rumour', 'lantern'],
+      scenario_slug: 'demo-mystery',
+      updated_at: '2026-09-22T17:00:00Z',
+    },
+  ],
+};
+
+// ---------- Stage 5 — Memory: Player-pinned memories (S5-T02) ---------------
+//
+// `PinnedMemory` is what the player explicitly starred from the recap or
+// lore tab. The API exposes them as a flat list scoped to the adventure.
+
+export interface PinnedMemory {
+  readonly id: number;
+  readonly kind: 'recap' | 'lore';
+  readonly ref_id: string;
+  readonly title: string;
+  readonly body: string;
+  readonly pinned_at: string;
+}
+
+export interface PinnedMemoryListResponse {
+  readonly adventure_id: number;
+  readonly pinned: ReadonlyArray<PinnedMemory>;
+}
+
+export const PINNED_MEMORY_FIXTURE: PinnedMemoryListResponse = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  pinned: [],
+};
+
+// ---------- Stage 6 — Visual generation: Image job (S6-T01) ----------------
+//
+// The Stage 6 API issues a background job per image request and exposes a
+// polling endpoint at `/api/image-jobs/{jobId}`. The fixture transport
+// resolves `completed` after one polling interval so the SPA shell can
+// exercise the polling path without a real backend.
+
+export type ImageJobStatus = 'queued' | 'generating' | 'completed' | 'failed';
+
+export interface ImageAsset {
+  readonly id: string;
+  readonly url: string;
+  readonly width: number;
+  readonly height: number;
+  readonly alt: string;
+}
+
+export interface ImageJobResponse {
+  readonly job_id: string;
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly turn_id: number;
+  readonly prompt: string;
+  readonly status: ImageJobStatus;
+  readonly asset: ImageAsset | null;
+  readonly error: { readonly message: string; readonly code?: string } | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export const SAMPLE_IMAGE_ALT =
+  'A misty harbour at dusk, lanterns reflected in still water, painted in soft amber and slate.';
+
+// Path under `public/`. The vite base is `/web/` so the absolute URL the
+// player sees in production is `/web/fixtures/sample-image.svg`. Tests
+// reference the same path via `IMG_FIXTURE_URL`.
+export const IMG_FIXTURE_URL = '/fixtures/sample-image.svg';
+
+export const IMAGE_ASSET_FIXTURE: ImageAsset = {
+  id: 'asset-misty-harbour-001',
+  url: IMG_FIXTURE_URL,
+  width: 1280,
+  height: 720,
+  alt: SAMPLE_IMAGE_ALT,
+};
+
+// Three carousel entries — what the player sees in the gallery before any
+// new generations arrive. Keep the URLs stable so tests can pin them.
+export const IMAGE_CAROUSEL_FIXTURE: ReadonlyArray<ImageAsset> = [
+  IMAGE_ASSET_FIXTURE,
+  {
+    id: 'asset-archive-002',
+    url: IMG_FIXTURE_URL,
+    width: 1280,
+    height: 720,
+    alt: 'Storm-battered limestone archive perched above a misty harbour.',
+  },
+  {
+    id: 'asset-village-003',
+    url: IMG_FIXTURE_URL,
+    width: 1280,
+    height: 720,
+    alt: 'Lantern-lit village lane leading to the archive at dusk.',
+  },
+];
+
+export const DEFAULT_IMAGE_PROMPT = 'A misty harbour at dusk, cinematic lighting';
+
+// `pending` fixture used by tests that exercise the queued → completed path
+// before any polling has happened. The default `IMAGE_JOB_COMPLETED_FIXTURE`
+// resolves the carousel asset so the SPA can render without a real backend.
+export const IMAGE_JOB_QUEUED_FIXTURE: ImageJobResponse = {
+  job_id: 'job-fixture-queued-001',
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  turn_id: 1,
+  prompt: DEFAULT_IMAGE_PROMPT,
+  status: 'queued',
+  asset: null,
+  error: null,
+  created_at: '2026-09-22T18:00:00Z',
+  updated_at: '2026-09-22T18:00:00Z',
+};
+
+export const IMAGE_JOB_GENERATING_FIXTURE: ImageJobResponse = {
+  ...IMAGE_JOB_QUEUED_FIXTURE,
+  job_id: 'job-fixture-generating-001',
+  status: 'generating',
+  updated_at: '2026-09-22T18:00:01Z',
+};
+
+export const IMAGE_JOB_COMPLETED_FIXTURE: ImageJobResponse = {
+  ...IMAGE_JOB_QUEUED_FIXTURE,
+  job_id: 'job-fixture-completed-001',
+  status: 'completed',
+  asset: IMAGE_ASSET_FIXTURE,
+  updated_at: '2026-09-22T18:00:02Z',
+};
