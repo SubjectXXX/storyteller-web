@@ -143,7 +143,7 @@ export function useImageJob(
   // `refetchInterval` rather than `setInterval` so the polling lifecycle
   // hooks into TanStack Query's mount/unmount story cleanly.
   const pollQuery = useQuery<ImageJobResponseShape, ApiError>({
-    queryKey: imageKeys.job(jobId),
+    queryKey: imageKeys.job(jobId ?? undefined),
     queryFn: ({ signal }) => {
       if (!jobId) {
         throw new ApiError(400, { message: 'jobId is required', code: 'missing_id' });

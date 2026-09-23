@@ -156,7 +156,7 @@ export function ImagePanel({
   const displayedAsset: ImageAsset | null = job.asset
     ? job.asset
     : carouselAssets.length > 0
-      ? carouselAssets[carouselAssets.length - 1]
+      ? (carouselAssets[carouselAssets.length - 1] ?? null)
       : null;
 
   return (

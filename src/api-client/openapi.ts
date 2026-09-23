@@ -42,7 +42,6 @@ import {
   type AuthTokenResource,
   type BranchResource,
   type ImageAsset,
-  type ImageCarouselResponse,
   type ImageJobResponse,
   type ImageJobStatus,
   type LoreEntry,
