@@ -14,7 +14,6 @@ import { Card } from '@/ui/Card';
 import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
 import { EmptyState } from '@/ui/EmptyState';
-import { LoadingPanel } from '@/components/LoadingPanel';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import {
   DEFAULT_IMAGE_PROMPT,

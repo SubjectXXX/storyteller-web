@@ -68,7 +68,7 @@ const slideStyle: CSSProperties = {
   minHeight: 'var(--control-touch-min)',
 };
 
-const figureStyle: CSSProperties = {
+const figureMarginStyle: CSSProperties = {
   margin: 0,
   display: 'flex',
   flexDirection: 'column',
