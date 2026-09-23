@@ -7,6 +7,7 @@ export const PlaySurfacePlaceholder = lazy(() => import('@/pages/PlaySurfacePlac
 export const LoginPage = lazy(() => import('@/pages/LoginPage'));
 export const RegisterPage = lazy(() => import('@/pages/RegisterPage'));
 export const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+export const UserSettingsPage = lazy(() => import('@/features/settings/UserSettingsPage'));
 export const WalletPage = lazy(() => import('@/pages/WalletPage'));
 export const ReferralsPage = lazy(() => import('@/pages/ReferralsPage'));
 export const StorySeedPreviewPlaceholder = lazy(() => import('@/pages/StorySeedPreviewPlaceholder'));

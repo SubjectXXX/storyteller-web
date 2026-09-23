@@ -13,8 +13,8 @@ import {
   ReferralsPage,
   RegisterPage,
   ScenarioLibraryPage,
-  SettingsPage,
   StorySeedPreviewPlaceholder,
+  UserSettingsPage,
   WalletPage,
 } from './lazyPages';
 
@@ -43,7 +43,7 @@ export function router(): ReactElement {
       <Route path="/play/:adventureId?" element={wrap(<PlaySurfacePlaceholder />)} />
       <Route path="/login" element={wrap(<LoginPage />)} />
       <Route path="/register" element={wrap(<RegisterPage />)} />
-      <Route path="/settings" element={wrap(<SettingsPage />, true)} />
+      <Route path="/settings" element={wrap(<UserSettingsPage />, true)} />
       <Route path="/wallet" element={wrap(<WalletPage />, true)} />
       <Route path="/referrals" element={wrap(<ReferralsPage />, true)} />
       <Route path="/story-seed-preview" element={wrap(<StorySeedPreviewPlaceholder />)} />
