@@ -14,27 +14,7 @@ import {
   useCreateBranch,
   useSubmitTurn,
 } from '@/hooks/useAdventures';
-import { useBranchTree } from '@/hooks/useBranchTree';
-import { useRedoBranch, useRetryBranch, useUndoBranch } from '@/hooks/useBranchOps';
-import { useCharacter } from '@/hooks/useCharacter';
-import { useNpcRoster } from '@/hooks/useNpcRoster';
-import { useInventory } from '@/hooks/useInventory';
-import { useDiceClock } from '@/hooks/useDiceClock';
-import { useRecap } from '@/hooks/useRecap';
-import {
-  useAdventureSettings,
-  useEffectiveSettings,
-  useUpdateAdventureSettings,
-} from '@/hooks/useAdventureSettings';
-import { usePlayerSettings } from '@/hooks/usePlayerSettings';
-import { CharacterPanel } from '@/features/play/CharacterPanel/CharacterPanel';
-import { NpcRoster } from '@/features/play/NpcRoster/NpcRoster';
-import { InventoryPanel } from '@/features/play/InventoryPanel/InventoryPanel';
-import { MemoryPanel } from '@/features/play/MemoryPanel/MemoryPanel';
-import { DiceClockPanel } from '@/features/play/DiceClockPanel/DiceClockPanel';
-import { QuestLog } from '@/features/play/QuestLog/QuestLog';
-import { BranchBar } from '@/features/play/BranchBar/BranchBar';
-import { AdventureSettingsDrawer } from '@/features/settings/AdventureSettingsDrawer';
+import { ImagePanel } from '@/features/play/ImagePanel/ImagePanel';
 import { TURN_FIXTURE, type SuggestedChoice } from '@/fixtures/data';
 import type { Quest } from '@/features/play/QuestLog/QuestLog';
 
@@ -455,72 +435,13 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
         </form>
       </section>
 
-      <div
-        data-testid={ADVENTURE_PAGE_TESTIDS.worldGrid}
-        style={worldGridStyle}
-        aria-label="World panels"
-      >
-        <CharacterPanel
-          character={characterQuery.data}
-          isLoading={characterQuery.isLoading}
-          error={
-            characterQuery.error
-              ? { message: characterQuery.error.message }
-              : null
-          }
-        />
-        <NpcRoster
-          npcs={npcQuery.data}
-          isLoading={npcQuery.isLoading}
-          error={npcQuery.error ? { message: npcQuery.error.message } : null}
-        />
-        <InventoryPanel items={inventory.items} totals={inventory.totals} />
-        <MemoryPanel
-          recap={recapQuery.data}
-          isLoading={recapQuery.isLoading}
-          error={
-            recapQuery.error
-              ? {
-                  message: recapQuery.error.message,
-                  status: recapQuery.error instanceof ApiError ? recapQuery.error.status : undefined,
-                }
-              : null
-          }
-        />
-        <DiceClockPanel event={resolvedMechanicEvent} />
-        <QuestLog quests={quests} />
-      </div>
-
-      {isDrawerOpen && (
-        <AdventureSettingsDrawer
-          adventureId={adventureId}
+      <section style={{ marginTop: 'var(--space-5)' }} aria-label="Visuals">
+        <ImagePanel
+          adventureId={adventure.id}
           branchId={adventure.current_branch.id}
-          adventureSettings={adventureSettingsQuery.data}
-          userSettings={playerSettingsQuery.data}
-          isLoading={adventureSettingsQuery.isLoading}
-          error={
-            adventureSettingsQuery.error instanceof ApiError
-              ? adventureSettingsQuery.error
-              : null
-          }
-          saving={updateAdventureSettings.isPending}
-          onChange={(groupId, value) => {
-            if (groupId === 'theme' || groupId === 'narration_verbosity') {
-              setLivePreview((prev) => ({
-                theme: prev?.theme,
-                narration_verbosity: prev?.narration_verbosity,
-                [groupId]: value,
-              }) as typeof prev);
-            }
-          }}
-          onSave={(body) => {
-            updateAdventureSettings.mutate(body, {
-              onSuccess: () => setDrawerOpen(false),
-            });
-          }}
-          onClose={() => setDrawerOpen(false)}
+          turnId={liveTurnId}
         />
-      )}
+      </section>
     </div>
   );
 }

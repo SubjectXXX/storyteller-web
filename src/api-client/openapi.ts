@@ -25,13 +25,12 @@ import {
   ADVENTURE_LIST_FIXTURE,
   ADVENTURE_SETTINGS_FIXTURE,
   AUTH_FIXTURE,
-  BRANCH_TREE_FIXTURE,
-  CHARACTER_FIXTURE,
-  CLOCK_TICK_FIXTURE,
-  EFFECTIVE_SETTINGS_FIXTURE,
-  NPC_ROSTER_FIXTURE,
+  IMAGE_CAROUSEL_FIXTURE,
+  IMAGE_JOB_COMPLETED_FIXTURE,
+  IMAGE_JOB_QUEUED_FIXTURE,
+  LORE_FIXTURE,
+  PINNED_MEMORY_FIXTURE,
   PLAY_FIXTURE,
-  PLAYER_SETTINGS_FIXTURE,
   RECAP_FIXTURE,
   REFERRAL_RESOURCE_FIXTURE,
   SCENARIO_RESOURCE_FIXTURES,
@@ -47,22 +46,13 @@ import {
   type AuthTokenResource,
   type BranchRedoRequest,
   type BranchResource,
-  type BranchRetryRequest,
-  type BranchTreeNode,
-  type BranchTreeResponse,
-  type BranchUndoRequest,
-  type CharacterResource,
-  type CharacterStat,
-  type CharacterTrait,
-  type ClockTickFixture,
-  type DiceRollFixture,
-  type EffectiveSettingsResource,
-  type MechanicEventFixture,
-  type NpcRelationship,
-  type NpcRelationshipKind,
-  type NpcResource,
-  type PlayerSettingsResource,
-  type PlayerSettingsUpdateRequest,
+  type ImageAsset,
+  type ImageJobResponse,
+  type ImageJobStatus,
+  type LoreEntry,
+  type LoreListResponse,
+  type PinnedMemory,
+  type PinnedMemoryListResponse,
   type PlayTurnFixture,
   type RecapResource,
   type RecapTurn,
@@ -249,6 +239,69 @@ export interface AiStatusResponse {
   readonly base_url: string;
   readonly reachable: boolean;
 }
+
+// ---------- Stage 5 — Memory & context (S5-T01..S5-T02) ---------------------
+//
+// The Stage 5 endpoints surface what the LLM remembered so the player
+// can scroll back through the chronicle (recap), browse canon facts
+// (lore), and review what they explicitly starred (pinned). The hooks
+// in `useMemory.ts` call these and fall back to fixtures when the API
+// has not shipped the corresponding route yet.
+
+/**
+ * `GET /api/adventures/{id}/recap` (Stage 5 placeholder). Returns the
+ * chronicle of recent turns plus the timestamp the LLM last refreshed
+ * it. The endpoint is not yet wired on the API; the fixture transport
+ * ships a populated sample so the panel renders offline.
+ */
+export type RecapResponse = RecapResource;
+
+/**
+ * `GET /api/adventures/{id}/lore?key=...` — fetch a single lore entry by
+ * its canonical key. The full list (without `?key=`) is also exposed via
+ * `GET /api/adventures/{id}/lore`. Both share `LoreListResponse` so the
+ * SPA can render the full list and highlight the focused entry.
+ */
+export interface LoreListQuery {
+  readonly key?: string;
+}
+export type LoreListResponseShape = LoreListResponse;
+
+/**
+ * `GET /api/adventures/{id}/pinned-memories` — flat list of player-
+ * starred recap turns or lore entries. The Stage 5 worker also exposes
+ * `POST /api/adventures/{id}/pinned-memories` to toggle; the SPA only
+ * reads for now, so we declare the read shape and a request body.
+ */
+export type PinnedMemoryListResponseShape = PinnedMemoryListResponse;
+export interface PinnedMemoryCreateRequest {
+  readonly kind: 'recap' | 'lore';
+  readonly ref_id: string;
+}
+
+// ---------- Stage 6 — Visual generation (S6-T01..S6-T02) ---------------------
+//
+// Stage 6 issues a background image-generation job per prompt. The SPA
+// POSTs to start a job, then polls the dedicated `GET /api/image-jobs/{id}`
+// endpoint until the job is `completed` or `failed`. The carousel reads
+// the full history via `GET /api/adventures/{id}/images`.
+
+export type ImageJobStatusShape = ImageJobStatus;
+export type ImageAssetShape = ImageAsset;
+export type ImageJobResponseShape = ImageJobResponse;
+
+export interface GenerateImageRequest {
+  readonly prompt: string;
+  readonly turn_id?: number | null;
+  readonly width?: number;
+  readonly height?: number;
+}
+
+export interface ImageCarouselResponse {
+  readonly adventure_id: number;
+  readonly assets: ReadonlyArray<ImageAsset>;
+}
+export type ImageCarouselResponseShape = ImageCarouselResponse;
 
 // ---------- Streaming SSE -------------------------------------------------
 
@@ -481,6 +534,39 @@ export interface ApiClient {
 
   // AI provider (public, no auth)
   readonly getAiStatus: (options?: RequestOptions) => Promise<AiStatusResponse>;
+
+  // Stage 5 — Memory & context (S5-T01..S5-T02)
+  readonly getRecap: (adventureId: number, options?: RequestOptions) => Promise<RecapResponse>;
+  readonly getLore: (
+    adventureId: number,
+    query?: LoreListQuery,
+    options?: RequestOptions,
+  ) => Promise<LoreListResponseShape>;
+  readonly getPinnedMemories: (
+    adventureId: number,
+    options?: RequestOptions,
+  ) => Promise<PinnedMemoryListResponseShape>;
+  readonly pinMemory: (
+    adventureId: number,
+    body: PinnedMemoryCreateRequest,
+    options?: RequestOptions,
+  ) => Promise<PinnedMemoryListResponseShape>;
+
+  // Stage 6 — Visual generation (S6-T01..S6-T02)
+  readonly createImageJob: (
+    adventureId: number,
+    branchId: number,
+    body: GenerateImageRequest,
+    options?: RequestOptions,
+  ) => Promise<ImageJobResponseShape>;
+  readonly getImageJob: (
+    jobId: string,
+    options?: RequestOptions,
+  ) => Promise<ImageJobResponseShape>;
+  readonly getAdventureImages: (
+    adventureId: number,
+    options?: RequestOptions,
+  ) => Promise<ImageCarouselResponseShape>;
 
   // Streaming SSE
   readonly streamAdventure: (
@@ -1092,116 +1178,72 @@ export function fixtureFetcher(): Fetcher {
       } satisfies AiStatusResponse;
     }
 
-    // ----- Stage 4: World panels (S4-T01) -----
-    if (method === 'GET' && /^\/adventures\/\d+\/character$/.test(path_)) {
-      return CHARACTER_FIXTURE satisfies CharacterResource;
-    }
-    if (method === 'GET' && /^\/adventures\/\d+\/npcs$/.test(path_)) {
-      return NPC_ROSTER_FIXTURE satisfies NpcListResponse;
-    }
+    // ----- Stage 5 — Memory & context -----
     if (method === 'GET' && /^\/adventures\/\d+\/recap$/.test(path_)) {
-      // Stage 5 placeholder — fixture mode returns a populated recap so the
-      // player can see what the panel will look like. The API worker will
-      // ship a real implementation.
+      // Stage 5 fixture — populated chronicle so the SPA renders offline.
       return RECAP_FIXTURE satisfies RecapResponse;
     }
-
-    // ----- Stage 4: Branch tree + ops (S4-T03) -----
-    if (method === 'GET' && /^\/adventures\/\d+\/branches$/.test(path_) && !/\/branches\/\d+\/(retry|undo|redo)$/.test(path_)) {
-      return BRANCH_TREE_FIXTURE satisfies BranchTreeResponse;
-    }
-    const branchOpMatch = path_.match(/^\/adventures\/(\d+)\/branches\/(\d+)\/(retry|undo|redo)$/);
-    if (branchOpMatch && method === 'POST') {
-      const [, , branchId, op] = branchOpMatch;
-      const id = Number(branchId);
-      const parent = BRANCH_TREE_FIXTURE.branches.find((b) => b.id === id) ?? BRANCH_TREE_FIXTURE.branches[0];
-      if (!parent) {
-        throw new ApiError(404, { message: `Branch ${id} not found`, code: 'not_found' });
-      }
-      if (op === 'retry' && !parent.can_retry) {
-        throw new ApiError(422, {
-          message: 'Branch does not allow retry.',
-          code: 'branch_op_not_allowed',
-        });
-      }
-      if (op === 'undo' && !parent.can_undo) {
-        throw new ApiError(422, {
-          message: 'Branch does not allow undo.',
-          code: 'branch_op_not_allowed',
-        });
-      }
-      if (op === 'redo' && !parent.can_redo) {
-        throw new ApiError(422, {
-          message: 'Branch does not allow redo.',
-          code: 'branch_op_not_allowed',
-        });
-      }
-      const next: BranchResource = {
-        ...ADVENTURE_FIXTURE.current_branch,
-        id: parent.id,
-        name: parent.name,
-        depth: parent.depth,
-        version: ADVENTURE_FIXTURE.current_branch.version + 1,
-        parent_branch_id: parent.parent_branch_id,
-        parent_turn_id: parent.parent_turn_id,
-        state: { ...ADVENTURE_FIXTURE.current_branch.state },
-      };
-      return next satisfies BranchResource;
-    }
-
-    // ----- Stage 4: Settings (S4-T05 + S4-T06) -----
-    if (method === 'GET' && /^\/adventures\/\d+\/settings$/.test(path_)) {
-      return ADVENTURE_SETTINGS_FIXTURE satisfies AdventureSettingsResource;
-    }
-    if (method === 'PUT' && /^\/adventures\/\d+\/settings$/.test(path_)) {
-      const body = (options.body ?? {}) as AdventureSettingsUpdateRequest;
-      const incoming = new Map(body.groups.map((g) => [g.id, g] as const));
-      const groups = ADVENTURE_SETTINGS_FIXTURE.groups.map((group) => {
-        const patch = incoming.get(group.id);
-        if (!patch) return group;
-        if (patch.state === 'override' && patch.value !== null) {
-          return {
-            ...group,
-            value: patch.value,
-            effective_value: patch.value,
-            state: 'override' as const,
-            source: 'adventure' as const,
-          };
-        }
-        if (patch.state === 'reset') {
-          return {
-            ...group,
-            state: 'reset' as const,
-            source: 'scenario' as const,
-          };
-        }
-        return { ...group, state: 'inherit' as const, source: 'user' as const };
-      });
-      return {
-        ...ADVENTURE_SETTINGS_FIXTURE,
-        groups,
-        updated_at: new Date().toISOString(),
-      } satisfies AdventureSettingsResource;
-    }
-    if (method === 'GET' && path_ === '/me/settings/effective') {
+    if (method === 'GET' && /^\/adventures\/\d+\/lore$/.test(path_)) {
       const query = path.includes('?') ? path.slice(path.indexOf('?') + 1) : '';
       const params = new URLSearchParams(query);
-      const branchId = Number(params.get('branch_id') ?? ADVENTURE_FIXTURE.current_branch.id);
+      const key = params.get('key');
+      if (!key) return LORE_FIXTURE satisfies LoreListResponse;
+      const entry = LORE_FIXTURE.entries.find((e) => e.key === key);
       return {
-        ...EFFECTIVE_SETTINGS_FIXTURE,
-        branch_id: Number.isFinite(branchId) ? branchId : ADVENTURE_FIXTURE.current_branch.id,
-      } satisfies EffectiveSettingsResource;
+        adventure_id: LORE_FIXTURE.adventure_id,
+        entries: entry ? [entry] : [],
+      } satisfies LoreListResponse;
     }
-    if (method === 'GET' && path_ === '/me/settings/player-defaults') {
-      return PLAYER_SETTINGS_FIXTURE satisfies PlayerSettingsResource;
+    if (method === 'GET' && /^\/adventures\/\d+\/pinned-memories$/.test(path_)) {
+      return PINNED_MEMORY_FIXTURE satisfies PinnedMemoryListResponse;
     }
-    if (method === 'PUT' && path_ === '/me/settings/player-defaults') {
-      const body = (options.body ?? {}) as PlayerSettingsUpdateRequest;
+    if (method === 'POST' && /^\/adventures\/\d+\/pinned-memories$/.test(path_)) {
+      // The fixture simply echoes the current pinned list back. The real
+      // API worker will insert and re-rank; we keep the contract identical
+      // so swapping is a one-line change.
+      const body = (options.body ?? {}) as PinnedMemoryCreateRequest;
+      if (!body.kind || !body.ref_id) {
+        throw new ApiError(422, {
+          message: 'kind and ref_id are required.',
+          code: 'validation',
+        });
+      }
+      return PINNED_MEMORY_FIXTURE satisfies PinnedMemoryListResponse;
+    }
+
+    // ----- Stage 6 — Visual generation -----
+    if (method === 'POST' && /^\/adventures\/\d+\/branches\/\d+\/image$/.test(path_)) {
+      const body = (options.body ?? {}) as GenerateImageRequest;
+      if (!body.prompt || body.prompt.trim().length === 0) {
+        throw new ApiError(422, {
+          message: 'prompt is required.',
+          code: 'validation',
+          fields: { prompt: 'prompt is required.' },
+        });
+      }
+      // Stage 6 fixture: a deterministic fake job so the polling path
+      // resolves predictably. The real API worker issues a real job and
+      // surfaces an opaque `job_id` we then poll.
+      return IMAGE_JOB_QUEUED_FIXTURE satisfies ImageJobResponse;
+    }
+    if (method === 'GET' && /^\/image-jobs\/[^/]+$/.test(path_)) {
+      // Stage 6 fixture: the first poll returns `generating`, the second
+      // resolves to `completed`. Real callers will poll against the live
+      // endpoint; tests inject their own fetcher to drive the state
+      // machine.
+      const match = path_.match(/^\/image-jobs\/([^/]+)$/);
+      const requestedJobId = match?.[1];
+      const completed = {
+        ...IMAGE_JOB_COMPLETED_FIXTURE,
+        job_id: requestedJobId ?? IMAGE_JOB_COMPLETED_FIXTURE.job_id,
+      } satisfies ImageJobResponse;
+      return completed;
+    }
+    if (method === 'GET' && /^\/adventures\/\d+\/images$/.test(path_)) {
       return {
-        ...PLAYER_SETTINGS_FIXTURE,
-        ...body,
-        updated_at: new Date().toISOString(),
-      } satisfies PlayerSettingsResource;
+        adventure_id: ADVENTURE_FIXTURE.id,
+        assets: IMAGE_CAROUSEL_FIXTURE,
+      } satisfies ImageCarouselResponse;
     }
 
     // ----- Legacy play-turn (kept for PlaySurfacePlaceholder) -----
@@ -1398,6 +1440,51 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
     getAiStatus: (options) =>
       fetcher('/admin/ai/status', { ...options, method: 'GET' }) as Promise<AiStatusResponse>,
 
+    // Stage 5 — Memory & context (S5-T01..S5-T02)
+    getRecap: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/recap`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<RecapResponse>,
+    getLore: (adventureId, query, options) => {
+      const params = new URLSearchParams();
+      if (query?.key) params.set('key', query.key);
+      const qs = params.toString();
+      return fetcher(`/adventures/${adventureId}/lore${qs ? `?${qs}` : ''}`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<LoreListResponseShape>;
+    },
+    getPinnedMemories: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/pinned-memories`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<PinnedMemoryListResponseShape>,
+    pinMemory: (adventureId, body, options) =>
+      fetcher(`/adventures/${adventureId}/pinned-memories`, {
+        ...options,
+        method: 'POST',
+        body,
+      }) as Promise<PinnedMemoryListResponseShape>,
+
+    // Stage 6 — Visual generation (S6-T01..S6-T02)
+    createImageJob: (adventureId, branchId, body, options) =>
+      fetcher(`/adventures/${adventureId}/branches/${branchId}/image`, {
+        ...options,
+        method: 'POST',
+        body,
+      }) as Promise<ImageJobResponseShape>,
+    getImageJob: (jobId, options) =>
+      fetcher(`/image-jobs/${jobId}`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<ImageJobResponseShape>,
+    getAdventureImages: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/images`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<ImageCarouselResponseShape>,
+
     // Streaming SSE — runs out-of-band of the `Fetcher` because it is a
     // long-lived request, not a single round trip. We expose a hook-level
     // wrapper in `useAdventures` so pages never call this directly.
@@ -1468,22 +1555,13 @@ export type {
   AuthTokenResource,
   BranchRedoRequest,
   BranchResource,
-  BranchRetryRequest,
-  BranchTreeNode,
-  BranchTreeResponse,
-  BranchUndoRequest,
-  CharacterResource,
-  CharacterStat,
-  CharacterTrait,
-  ClockTickFixture,
-  DiceRollFixture,
-  EffectiveSettingsResource,
-  MechanicEventFixture,
-  NpcRelationship,
-  NpcRelationshipKind,
-  NpcResource,
-  PlayerSettingsResource,
-  PlayerSettingsUpdateRequest,
+  ImageAsset,
+  ImageJobResponse,
+  ImageJobStatus,
+  LoreEntry,
+  LoreListResponse,
+  PinnedMemory,
+  PinnedMemoryListResponse,
   RecapResource,
   RecapTurn,
   ReferralResource,
@@ -1499,12 +1577,11 @@ export type {
 };
 
 export {
-  ADVENTURE_SETTINGS_FIXTURE,
-  BRANCH_TREE_FIXTURE,
-  CHARACTER_FIXTURE,
-  CLOCK_TICK_FIXTURE,
-  EFFECTIVE_SETTINGS_FIXTURE,
-  NPC_ROSTER_FIXTURE,
-  PLAYER_SETTINGS_FIXTURE,
+  ADVENTURE_FIXTURE,
+  IMAGE_CAROUSEL_FIXTURE,
+  IMAGE_JOB_COMPLETED_FIXTURE,
+  IMAGE_JOB_QUEUED_FIXTURE,
+  LORE_FIXTURE,
+  PINNED_MEMORY_FIXTURE,
   RECAP_FIXTURE,
 };
