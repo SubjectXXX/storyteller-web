@@ -325,7 +325,7 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   return (
     <div data-testid={ADVENTURE_PAGE_TESTIDS.surface}>
       <PageHeader
-        eyebrow={`Adventure #${adventure.id} \u00B7 ${adventure.status}`}
+        eyebrow={`Adventure #${adventure.id} · ${adventure.status}`}
         title={adventure.title}
         description={`Branch ${adventure.current_branch.name} (depth ${adventure.current_branch.depth}, version ${adventure.current_branch.version}).`}
         actions={
