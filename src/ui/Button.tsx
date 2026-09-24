@@ -12,6 +12,7 @@ export interface ButtonProps {
   readonly onClick?: () => void;
   readonly fullWidth?: boolean;
   readonly 'aria-label'?: string;
+  readonly 'data-testid'?: string;
 }
 
 const baseStyle: CSSProperties = {
@@ -76,7 +77,14 @@ export function Button({
     ...(disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
   };
   return (
-    <button type={type} disabled={disabled} onClick={onClick} style={style} aria-label={rest['aria-label']}>
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      style={style}
+      aria-label={rest['aria-label']}
+      data-testid={rest['data-testid']}
+    >
       {children}
     </button>
   );
