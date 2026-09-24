@@ -617,8 +617,14 @@ export function liveFetcher(baseUrl: string = DEFAULT_BASE_URL, authToken?: stri
     if (options.body !== undefined && !(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
-    if (authToken) {
-      headers.Authorization = `Bearer ${authToken}`;
+    // Resolve the bearer at request-time. We prefer the explicitly-passed
+    // token (e.g. `primeUserWithToken(token)` on first paint) and fall
+    // back to whatever the auth context wrote to localStorage. The auth
+    // context clears the storage on sign-out / 401, so a stale token
+    // can't leak past a sign-out. Mirrors the admin SPA's `request()`.
+    const resolvedToken = authToken ?? readStoredAuthToken();
+    if (resolvedToken) {
+      headers.Authorization = `Bearer ${resolvedToken}`;
     }
     // Caller-supplied headers (e.g. `If-Match` for S4-T05 settings PUTs).
     // They win on collision so callers can override auth/content-type when
@@ -665,6 +671,24 @@ function safeParse(text: string): unknown {
     return JSON.parse(text);
   } catch {
     return text;
+  }
+}
+
+/**
+ * Read the bearer the auth context wrote to localStorage. Mirrors the
+ * admin SPA's `readStoredAuthToken()` in
+ * `application/admin/src/api-client/http.ts` so the live fetcher can
+ * attach the bearer even when the React state propagation has not yet
+ * caught up to a sign-in event from another tab. Lives here (not in
+ * `AuthContext`) so the http layer doesn't import React.
+ */
+function readStoredAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const token = window.localStorage.getItem('storyteller.session.token');
+    return token !== null && token.length > 0 ? token : null;
+  } catch {
+    return null;
   }
 }
 
