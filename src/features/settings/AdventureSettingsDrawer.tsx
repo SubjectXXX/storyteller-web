@@ -236,6 +236,15 @@ export function AdventureSettingsDrawer({
                       <Button
                         intent="ghost"
                         size="sm"
+                        aria-label={`Override ${group.label} for this adventure only`}
+                        onClick={() => handleOverride(group.id, group.effective_value)}
+                        disabled={overridden}
+                      >
+                        Override
+                      </Button>
+                      <Button
+                        intent="ghost"
+                        size="sm"
                         aria-label={`Inherit ${group.label} from user default`}
                         onClick={() => handleInherit(group.id)}
                         disabled={entry.state === 'inherit'}
