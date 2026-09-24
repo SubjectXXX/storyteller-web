@@ -12,6 +12,7 @@ import {
   PlaySurfacePlaceholder,
   ReferralsPage,
   RegisterPage,
+  ScenarioDetailPage,
   ScenarioLibraryPage,
   StorySeedPreviewPlaceholder,
   UserSettingsPage,
@@ -39,6 +40,7 @@ export function router(): ReactElement {
     <Routes>
       <Route path="/" element={wrap(<HomePage />)} />
       <Route path="/scenarios" element={wrap(<ScenarioLibraryPage />)} />
+      <Route path="/scenarios/:slug" element={wrap(<ScenarioDetailPage />)} />
       <Route path="/adventures/:id" element={wrap(<AdventurePage />, true)} />
       <Route path="/play/:adventureId?" element={wrap(<PlaySurfacePlaceholder />)} />
       <Route path="/login" element={wrap(<LoginPage />)} />

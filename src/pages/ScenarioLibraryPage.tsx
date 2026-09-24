@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactElement } from 'react';
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { PageHeader } from '@/ui/PageHeader';
 import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
@@ -182,7 +182,7 @@ export default function ScenarioLibraryPage(): ReactElement {
                   Could not start this adventure. Sign in or try again.
                 </p>
               )}
-              <div style={{ marginTop: 'auto' }}>
+              <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                 <Button
                   intent="primary"
                   onClick={() => void handleStart(scenario.slug)}
@@ -192,6 +192,23 @@ export default function ScenarioLibraryPage(): ReactElement {
                 >
                   {startingSlug === scenario.slug ? 'Starting…' : 'Start adventure'}
                 </Button>
+                <Link
+                  to={`/scenarios/${encodeURIComponent(scenario.slug)}`}
+                  aria-label={`View scenario details for ${scenario.title}`}
+                  style={{
+                    display: 'inline-flex',
+                    justifyContent: 'center',
+                    padding: 'var(--space-2) var(--space-3)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-surface)',
+                    color: 'var(--color-foreground)',
+                    fontSize: 'var(--text-sm)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  View scenario
+                </Link>
               </div>
             </li>
           ))}

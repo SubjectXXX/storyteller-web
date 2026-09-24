@@ -76,8 +76,35 @@ export function useUpdatePlayerSettings(): UseMutationResult<
 > {
   const api = useApiClient();
   const queryClient = useQueryClient();
+  const etag = usePlayerSettingsEtag();
   return useMutation<PlayerSettingsResource, ApiError, PlayerSettingsUpdateRequest>({
-    mutationFn: (body) => api.updatePlayerSettings(body),
+    // Send `If-Match` so the server's optimistic-concurrency check (returns
+    // 428 since v5) accepts the write. The `usePlayerSettingsEtag()` hook
+    // returns the cached `updated_at` token from the most recent GET.
+    mutationFn: async (body) => {
+      try {
+        return await api.updatePlayerSettings(body, {
+          headers: etag ? { 'If-Match': etag } : undefined,
+        });
+      } catch (err) {
+        // On 428 the cached ETag is stale; re-fetch, then retry once with
+        // the fresh token. Avoids forcing the user to click "Save" again
+        // when another tab has raced us to the update.
+        if (err instanceof ApiError && err.status === 428) {
+          await queryClient.invalidateQueries({
+            queryKey: playerSettingsKeys.detail(),
+          });
+          const fresh = queryClient.getQueryData<PlayerSettingsResource>(
+            playerSettingsKeys.detail(),
+          );
+          const freshEtag = fresh?.updated_at ?? '';
+          return api.updatePlayerSettings(body, {
+            headers: freshEtag ? { 'If-Match': freshEtag } : undefined,
+          });
+        }
+        throw err;
+      }
+    },
     onSuccess: (data) => {
       queryClient.setQueryData(playerSettingsKeys.detail(), data);
       // Player-default changes cascade into every open adventure, so

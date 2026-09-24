@@ -8,20 +8,41 @@ import { useAuth } from '@/auth/useAuth';
 import { ApiError } from '@/api-client';
 
 export default function LoginPage(): ReactElement {
-  const { signIn, token, error, ready } = useAuth();
+  const { signIn, signOut, token, user, ready } = useAuth();
   const navigate = useNavigate();
   const [search] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  // Already signed in? Bounce home (or wherever they were going).
-  if (ready && token !== null) {
+  // Authenticated users see a "Signed in" panel instead of the email form
+  // so the page is always testable: an unauthenticated user can sign in, a
+  // signed-in user can sign out and try a different account.
+  const signedIn = ready && token !== null && user !== null;
+  if (signedIn) {
     const next = search.get('next');
-    return <Navigate to={next && next.startsWith('/') ? next : '/'} replace />;
+    return (
+      <SignedInPanel
+        name={user?.name ?? user?.email ?? 'your account'}
+        signingOut={signingOut}
+        onContinueHome={() => navigate(next && next.startsWith('/') ? next : '/', { replace: true })}
+        onSignOut={async () => {
+          setSigningOut(true);
+          try {
+            await signOut();
+            navigate('/login', { replace: true });
+          } finally {
+            setSigningOut(false);
+          }
+        }}
+      />
+    );
   }
 
+  // `ready` is true but `token` is null: bootstrap rejected the stored
+  // token and cleared it. Fall through to the form.
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLocalError(null);
@@ -53,7 +74,7 @@ export default function LoginPage(): ReactElement {
         description="Sign in to resume an adventure, manage your wallet, or invite a friend."
       />
 
-      {ready && !token ? (
+      {ready ? (
         <form
           onSubmit={(event) => void handleSubmit(event)}
           noValidate
@@ -86,9 +107,9 @@ export default function LoginPage(): ReactElement {
             />
           </label>
 
-          {(localError ?? error) && (
+          {localError && (
             <p id="login-error" role="alert" style={errorStyle}>
-              {localError ?? error?.message}
+              {localError}
             </p>
           )}
 
@@ -104,6 +125,62 @@ export default function LoginPage(): ReactElement {
       ) : (
         <LoadingPanel label="Resuming your session" intent="inline" />
       )}
+    </div>
+  );
+}
+
+interface SignedInPanelProps {
+  readonly name: string;
+  readonly signingOut: boolean;
+  readonly onContinueHome: () => void;
+  readonly onSignOut: () => void | Promise<void>;
+}
+
+function SignedInPanel({
+  name,
+  signingOut,
+  onContinueHome,
+  onSignOut,
+}: SignedInPanelProps): ReactElement {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Signed in"
+        title="You're already signed in"
+        description="Use a different account? Sign out below, or continue to the home page."
+      />
+      <div
+        role="region"
+        aria-label="Current session"
+        style={{
+          ...formStyle,
+          gap: 'var(--space-3)',
+        }}
+      >
+        <p
+          data-testid="login-signed-in-name"
+          style={{
+            margin: 0,
+            fontFamily: 'var(--font-serif)',
+            fontSize: 'var(--text-lg)',
+          }}
+        >
+          Signed in as <strong>{name}</strong>.
+        </p>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <Button intent="primary" onClick={onContinueHome}>
+            Continue to home
+          </Button>
+          <Button
+            intent="secondary"
+            onClick={() => void onSignOut()}
+            disabled={signingOut}
+            aria-label="Sign out and return to login form"
+          >
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
