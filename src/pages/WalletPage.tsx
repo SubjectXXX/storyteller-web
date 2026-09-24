@@ -41,7 +41,13 @@ export default function WalletPage(): ReactElement {
   const localConfirmMutation = useConfirmBillingLocalCheckout();
 
   const wallet: WalletResource = walletQuery.data ?? WALLET_RESOURCE_FIXTURE;
-  const packages: ReadonlyArray<CreditPackageResource> = packagesQuery.data ?? CREDIT_PACKAGE_FIXTURES;
+  // R15 P1: `??` only fires on nullish, so an API success-with-empty-data
+  // (`{"data":[]}`) hid the offline fixtures. Use `.length` so we fall
+  // back to the fixture list when the live catalogue is empty too.
+  const packages: ReadonlyArray<CreditPackageResource> =
+    packagesQuery.data && packagesQuery.data.length > 0
+      ? packagesQuery.data
+      : CREDIT_PACKAGE_FIXTURES;
 
   // Last successful Test LLM response — used to render the result panel
   // and the cost / balance delta. Falls back to the fixture when the
@@ -89,6 +95,18 @@ export default function WalletPage(): ReactElement {
   const handleStripeTopUp = async (pkg: CreditPackageResource): Promise<void> => {
     try {
       const result = await checkoutMutation.mutateAsync({ package_slug: pkg.slug });
+      // R15 P1: persist the session id so the Re-confirm button can
+      // re-drive the local-confirm idempotent path against the SAME
+      // session (server returns `{status:'duplicate',credited:false}`
+      // on the replay — that's the expected behaviour, not an error).
+      if (typeof result.session_id === 'string' && result.session_id.length > 0) {
+        try {
+          window.localStorage.setItem(`stripe-session-${pkg.slug}`, result.session_id);
+          window.localStorage.setItem(`stripe-session-initiated-${pkg.slug}`, new Date().toISOString());
+        } catch {
+          // localStorage can throw in private-mode browsers; not fatal.
+        }
+      }
       if (typeof result.checkout_url === 'string' && result.checkout_url.length > 0) {
         if (result.mode === 'local') {
           // The local-checkout page form-posts to the api; keep the
@@ -122,6 +140,26 @@ export default function WalletPage(): ReactElement {
       // eslint-disable-next-line no-console -- intentional dev signal
       console.warn('[storyteller/web] Stripe local confirm failed', err);
     }
+  };
+
+  // R15 P1: Re-confirm reads the session id captured by the most recent
+  // Pay-with-Stripe click for this package. Falls back to the (legacy)
+  // placeholder only as a last resort so the verifier can still drive
+  // the button without a prior Pay-with-Stripe click — the api will
+  // 404 on the placeholder and the player sees a clear error banner.
+  const handleReconfirmFromStorage = (pkg: CreditPackageResource): void => {
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(`stripe-session-${pkg.slug}`);
+    } catch {
+      stored = null;
+    }
+    if (stored === null || stored.length === 0) {
+      // No prior Pay-with-Stripe click — keep the legacy placeholder so
+      // existing click-throughs don't break, but the api will reject it.
+      stored = `demo-session-${pkg.slug}`;
+    }
+    void handleLocalStripeConfirm(stored, pkg);
   };
 
   const probe = lastTest ?? AI_TEST_RESPONSE_FIXTURE;
@@ -483,7 +521,7 @@ export default function WalletPage(): ReactElement {
               <Button
                 intent="secondary"
                 disabled={localConfirmMutation.isPending}
-                onClick={() => void handleLocalStripeConfirm('demo-session-' + pkg.slug, pkg)}
+                onClick={() => handleReconfirmFromStorage(pkg)}
                 data-testid={`wallet-stripe-confirm-${pkg.slug}`}
                 aria-label={`Re-confirm local Stripe session for ${pkg.name}`}
               >
