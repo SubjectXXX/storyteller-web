@@ -25,11 +25,16 @@ import {
   ADVENTURE_LIST_FIXTURE,
   ADVENTURE_SETTINGS_FIXTURE,
   AUTH_FIXTURE,
+  BRANCH_TREE_FIXTURE,
+  CHARACTER_FIXTURE,
+  CLOCK_TICK_FIXTURE,
+  DICE_ROLL_FIXTURE,
   EFFECTIVE_SETTINGS_FIXTURE,
   IMAGE_CAROUSEL_FIXTURE,
   IMAGE_JOB_COMPLETED_FIXTURE,
   IMAGE_JOB_QUEUED_FIXTURE,
   LORE_FIXTURE,
+  NPC_FIXTURE,
   PINNED_MEMORY_FIXTURE,
   PLAY_FIXTURE,
   PLAYER_SETTINGS_FIXTURE,
@@ -48,12 +53,24 @@ import {
   type AuthTokenResource,
   type BranchRedoRequest,
   type BranchResource,
+  type BranchRetryRequest,
+  type BranchTreeNode,
+  type BranchTreeResponse,
+  type BranchUndoRequest,
+  type CharacterResource,
+  type CharacterStat,
+  type CharacterTrait,
+  type ClockTickFixture,
+  type DiceRollFixture,
   type EffectiveSettingsResource,
   type ImageAsset,
   type ImageJobResponse,
   type ImageJobStatus,
   type LoreEntry,
   type LoreListResponse,
+  type NpcRelationship,
+  type NpcRelationshipKind,
+  type NpcResource,
   type PinnedMemory,
   type PinnedMemoryListResponse,
   type PlayTurnFixture,
@@ -254,15 +271,7 @@ export interface AiStatusResponse {
 // has not shipped the corresponding route yet.
 
 /**
- * `GET /api/adventures/{id}/recap` (Stage 5 placeholder). Returns the
- * chronicle of recent turns plus the timestamp the LLM last refreshed
- * it. The endpoint is not yet wired on the API; the fixture transport
- * ships a populated sample so the panel renders offline.
- */
-export type RecapResponse = RecapResource;
-
-/**
- * `GET /api/adventures/{id}/lore?key=...` — fetch a single lore entry by
+ * `GET /api/adventures/{id}/lore?key=... — fetch a single lore entry by
  * its canonical key. The full list (without `?key=`) is also exposed via
  * `GET /api/adventures/{id}/lore`. Both share `LoreListResponse` so the
  * SPA can render the full list and highlight the focused entry.
@@ -547,7 +556,6 @@ export interface ApiClient {
   readonly getAiStatus: (options?: RequestOptions) => Promise<AiStatusResponse>;
 
   // Stage 5 — Memory & context (S5-T01..S5-T02)
-  readonly getRecap: (adventureId: number, options?: RequestOptions) => Promise<RecapResponse>;
   readonly getLore: (
     adventureId: number,
     query?: LoreListQuery,
@@ -1553,11 +1561,6 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
       fetcher('/admin/ai/status', { ...options, method: 'GET' }) as Promise<AiStatusResponse>,
 
     // Stage 5 — Memory & context (S5-T01..S5-T02)
-    getRecap: (adventureId, options) =>
-      fetcher(`/adventures/${adventureId}/recap`, {
-        ...options,
-        method: 'GET',
-      }) as Promise<RecapResponse>,
     getLore: (adventureId, query, options) => {
       const params = new URLSearchParams();
       if (query?.key) params.set('key', query.key);
@@ -1667,12 +1670,24 @@ export type {
   AuthTokenResource,
   BranchRedoRequest,
   BranchResource,
+  BranchRetryRequest,
+  BranchTreeNode,
+  BranchTreeResponse,
+  BranchUndoRequest,
+  CharacterResource,
+  CharacterStat,
+  CharacterTrait,
+  ClockTickFixture,
+  DiceRollFixture,
   EffectiveSettingsResource,
   ImageAsset,
   ImageJobResponse,
   ImageJobStatus,
   LoreEntry,
   LoreListResponse,
+  NpcRelationship,
+  NpcRelationshipKind,
+  NpcResource,
   PinnedMemory,
   PinnedMemoryListResponse,
   PlayerSettingsResource,
@@ -1694,11 +1709,16 @@ export type {
 export {
   ADVENTURE_FIXTURE,
   ADVENTURE_SETTINGS_FIXTURE,
+  BRANCH_TREE_FIXTURE,
+  CHARACTER_FIXTURE,
+  CLOCK_TICK_FIXTURE,
+  DICE_ROLL_FIXTURE,
   EFFECTIVE_SETTINGS_FIXTURE,
   IMAGE_CAROUSEL_FIXTURE,
   IMAGE_JOB_COMPLETED_FIXTURE,
   IMAGE_JOB_QUEUED_FIXTURE,
   LORE_FIXTURE,
+  NPC_FIXTURE,
   PINNED_MEMORY_FIXTURE,
   PLAYER_SETTINGS_FIXTURE,
   RECAP_FIXTURE,

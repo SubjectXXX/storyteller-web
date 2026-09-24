@@ -39,6 +39,21 @@ export {
   useUpdateAdventureSettings,
 } from './useAdventureSettings';
 
+// Stage 4 — Dice/clock + inventory derivation helpers (S4-T01..S4-T03)
+export {
+  useDiceClock,
+  type ClockTick,
+  type DiceRoll,
+  type MechanicEvent,
+  type MechanicKind,
+} from './useDiceClock';
+export {
+  useInventory,
+  type InventoryItem,
+  type InventorySlot,
+  type InventoryTotals,
+} from './useInventory';
+
 // Stage 5 — Memory & context (S5-T01..S5-T02)
 export {
   memoryKeys,
