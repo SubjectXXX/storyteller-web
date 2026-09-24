@@ -23,6 +23,22 @@ export {
 export { useAiStatus } from './useAiStatus';
 export { useAuth } from './useAuth';
 
+// Stage 4 — Player defaults + per-adventure settings (S4-T05 / S4-T06)
+export {
+  playerSettingsKeys,
+  usePlayerSettings,
+  usePlayerSettingsEtag,
+  useUpdatePlayerSettings,
+} from './usePlayerSettings';
+export {
+  adventureSettingsKeys,
+  effectiveSettingsKeys,
+  useAdventureSettings,
+  useAdventureSettingsEtag,
+  useEffectiveSettings,
+  useUpdateAdventureSettings,
+} from './useAdventureSettings';
+
 // Stage 5 — Memory & context (S5-T01..S5-T02)
 export {
   memoryKeys,
