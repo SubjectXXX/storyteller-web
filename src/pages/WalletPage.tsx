@@ -1,37 +1,70 @@
 import type { ReactElement } from 'react';
+import { useState } from 'react';
 import { PageHeader } from '@/ui/PageHeader';
 import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
-import { useTopUpWallet, useWallet } from '@/hooks';
-import { WALLET_RESOURCE_FIXTURE, type WalletResource } from '@/fixtures/data';
+import { useTopUpWallet, useWallet, useCreditPackages, useTestAi } from '@/hooks';
+import {
+  AI_TEST_RESPONSE_FIXTURE,
+  CREDIT_PACKAGE_FIXTURES,
+  WALLET_RESOURCE_FIXTURE,
+  type CreditPackageResource,
+  type WalletResource,
+} from '@/fixtures/data';
+import { ApiError } from '@/api-client';
 
-const TOP_UP_PACKAGES: ReadonlyArray<{
-  readonly id: string;
-  readonly name: string;
-  readonly amount: number;
-  readonly bonus: number;
-}> = [
-  { id: 'pkg-starter', name: 'Starter Pack', amount: 100, bonus: 0 },
-  { id: 'pkg-explorer', name: 'Explorer Pack', amount: 500, bonus: 10 },
-  { id: 'pkg-vault', name: 'Vault Pack', amount: 2400, bonus: 15 },
-];
+const TEST_LLM_PROMPT =
+  'You are a Storyteller narrator for a tabletop RPG. In two short paragraphs, describe what happens when the player enters a foggy harbour at dawn. Mention a lantern.';
+
+function priceLabel(pkg: CreditPackageResource): string {
+  if (pkg.price_cents <= 0) {
+    return 'Free';
+  }
+  const amount = pkg.price_cents / 100;
+  return `${amount.toFixed(2)} ${pkg.currency}`;
+}
 
 export default function WalletPage(): ReactElement {
   const walletQuery = useWallet();
+  const packagesQuery = useCreditPackages();
   const topUpMutation = useTopUpWallet();
+  const testAiMutation = useTestAi();
 
   const wallet: WalletResource = walletQuery.data ?? WALLET_RESOURCE_FIXTURE;
+  const packages: ReadonlyArray<CreditPackageResource> = packagesQuery.data ?? CREDIT_PACKAGE_FIXTURES;
 
-  const handleBuy = async (pkg: { readonly id: string; readonly amount: number }) => {
+  // Last successful Test LLM response — used to render the result panel
+  // and the cost / balance delta. Falls back to the fixture when the
+  // user has never run the probe so the page still tells a story.
+  const [lastTest, setLastTest] = useState<typeof testAiMutation.data | null>(null);
+  const balanceBelowTestLlm = wallet.balance <= 0;
+
+  const handleBuy = async (pkg: CreditPackageResource) => {
     try {
-      await topUpMutation.mutateAsync({ package_id: pkg.id, amount: pkg.amount });
+      await topUpMutation.mutateAsync({
+        package_id: pkg.slug,
+        amount: pkg.credits,
+      });
     } catch (err) {
       // The mutation's error state is already surfaced via `topUpMutation.error`.
       // eslint-disable-next-line no-console -- intentional dev signal
       console.warn('[storyteller/web] top-up failed', err);
     }
   };
+
+  const handleRunTestLlm = async () => {
+    try {
+      const result = await testAiMutation.mutateAsync({ prompt: TEST_LLM_PROMPT });
+      setLastTest(result);
+    } catch (err) {
+      // Error state is rendered inline below; just log in dev.
+      // eslint-disable-next-line no-console -- intentional dev signal
+      console.warn('[storyteller/web] Test LLM failed', err);
+    }
+  };
+
+  const probe = lastTest ?? AI_TEST_RESPONSE_FIXTURE;
 
   return (
     <div>
@@ -54,6 +87,7 @@ export default function WalletPage(): ReactElement {
           }}
         >
           <article
+            data-testid="wallet-balance-card"
             style={{
               padding: 'var(--space-5)',
               background: 'var(--color-surface)',
@@ -74,6 +108,7 @@ export default function WalletPage(): ReactElement {
               Balance
             </span>
             <p
+              data-testid="wallet-balance"
               style={{
                 fontFamily: 'var(--font-serif)',
                 fontSize: 'var(--text-4xl)',
@@ -100,6 +135,132 @@ export default function WalletPage(): ReactElement {
       )}
 
       <h2
+        id="test-llm"
+        style={{
+          fontFamily: 'var(--font-serif)',
+          fontSize: 'var(--text-xl)',
+          marginBottom: 'var(--space-3)',
+        }}
+      >
+        Test LLM
+      </h2>
+      <section
+        aria-labelledby="test-llm"
+        data-testid="wallet-test-llm"
+        style={{
+          padding: 'var(--space-4)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--color-surface)',
+          marginBottom: 'var(--space-6)',
+        }}
+      >
+        <p style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)', marginTop: 0 }}>
+          Runs the active provider (LM Studio / qwen/qwen3-vl-4b by default) against a fixed prompt and charges
+          the wallet through the S8-T01 ledger. Use this to verify the billing → model → response loop end-to-end
+          without needing an adventure in flight.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+          <Button
+            intent="primary"
+            disabled={balanceBelowTestLlm || testAiMutation.isPending}
+            onClick={() => void handleRunTestLlm()}
+            data-testid="wallet-test-llm-run"
+            aria-label={balanceBelowTestLlm ? 'Test LLM — top up to continue' : 'Run Test LLM probe'}
+          >
+            {testAiMutation.isPending ? 'Calling LM Studio…' : balanceBelowTestLlm ? 'Top up to continue' : 'Test LLM'}
+          </Button>
+          {balanceBelowTestLlm && (
+            <Pill intent="warning" title="Insufficient credits">
+              Balance 0
+            </Pill>
+          )}
+        </div>
+
+        {testAiMutation.isError && (
+          <p
+            role="alert"
+            data-testid="wallet-test-llm-error"
+            style={{
+              padding: 'var(--space-3) var(--space-4)',
+              border: '1px solid var(--color-danger)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--color-danger)',
+              fontSize: 'var(--text-sm)',
+              marginBottom: 'var(--space-3)',
+            }}
+          >
+            Test LLM failed:{' '}
+            {testAiMutation.error instanceof ApiError
+              ? testAiMutation.error.message
+              : (testAiMutation.error as Error).message ?? 'Unknown error.'}
+          </p>
+        )}
+
+        {testAiMutation.isSuccess && lastTest !== null && (
+          <article
+            data-testid="wallet-test-llm-result"
+            style={{
+              padding: 'var(--space-3) var(--space-4)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--color-bg-elevated, var(--color-surface))',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-2)',
+            }}
+          >
+            <strong style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-md)' }}>
+              Response ({probe.model})
+            </strong>
+            <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>{probe.text}</p>
+            <dl
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                gap: 'var(--space-2)',
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-foreground-muted)',
+                margin: 0,
+                marginTop: 'var(--space-2)',
+              }}
+            >
+              <div>
+                <dt style={{ fontWeight: 'normal', textTransform: 'uppercase', fontSize: 'var(--text-xs)' }}>
+                  Cost
+                </dt>
+                <dd style={{ margin: 0 }}>
+                  -{probe.cost_credit} {wallet.currency}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 'normal', textTransform: 'uppercase', fontSize: 'var(--text-xs)' }}>
+                  Balance Δ
+                </dt>
+                <dd style={{ margin: 0 }}>
+                  {probe.balance_before} → {probe.balance_after}
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 'normal', textTransform: 'uppercase', fontSize: 'var(--text-xs)' }}>
+                  Tokens
+                </dt>
+                <dd style={{ margin: 0 }}>
+                  {probe.usage.input_tokens} in / {probe.usage.output_tokens} out ({probe.usage.total_tokens} total)
+                </dd>
+              </div>
+              <div>
+                <dt style={{ fontWeight: 'normal', textTransform: 'uppercase', fontSize: 'var(--text-xs)' }}>
+                  Latency
+                </dt>
+                <dd style={{ margin: 0 }}>{probe.usage.latency_ms} ms</dd>
+              </div>
+            </dl>
+          </article>
+        )}
+      </section>
+
+      <h2
         id="packages"
         style={{
           fontFamily: 'var(--font-serif)',
@@ -113,6 +274,7 @@ export default function WalletPage(): ReactElement {
       {topUpMutation.error && (
         <p
           role="alert"
+          data-testid="wallet-topup-error"
           style={{
             padding: 'var(--space-3) var(--space-4)',
             border: '1px solid var(--color-danger)',
@@ -128,6 +290,7 @@ export default function WalletPage(): ReactElement {
 
       <ul
         aria-labelledby="packages"
+        data-testid="wallet-packages"
         style={{
           display: 'grid',
           gap: 'var(--space-3)',
@@ -136,9 +299,11 @@ export default function WalletPage(): ReactElement {
           margin: 0,
         }}
       >
-        {TOP_UP_PACKAGES.map((pkg) => (
+        {packages.map((pkg) => (
           <li
-            key={pkg.id}
+            key={pkg.slug}
+            data-testid="wallet-package"
+            data-package-slug={pkg.slug}
             style={{
               padding: 'var(--space-4)',
               border: '1px solid var(--color-border)',
@@ -155,12 +320,7 @@ export default function WalletPage(): ReactElement {
                 {pkg.name}
               </strong>
               <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-                {pkg.amount + Math.round((pkg.amount * pkg.bonus) / 100)} credits
-                {pkg.bonus > 0 && (
-                  <em style={{ marginLeft: 'var(--space-2)', color: 'var(--color-success)' }}>
-                    +{pkg.bonus}% bonus
-                  </em>
-                )}
+                {pkg.credits} credits · {priceLabel(pkg)}
               </span>
               <Pill intent="muted" title="Local-dev top-up">
                 Local top-up
@@ -170,9 +330,10 @@ export default function WalletPage(): ReactElement {
               intent="primary"
               disabled={topUpMutation.isPending}
               onClick={() => void handleBuy(pkg)}
+              data-testid={`wallet-buy-${pkg.slug}`}
               aria-label={`Buy ${pkg.name}`}
             >
-              {topUpMutation.isPending && topUpMutation.variables?.package_id === pkg.id
+              {topUpMutation.isPending && topUpMutation.variables?.package_id === pkg.slug
                 ? 'Adding…'
                 : 'Buy'}
             </Button>

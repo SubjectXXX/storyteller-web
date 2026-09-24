@@ -24,10 +24,12 @@ import {
   ADVENTURE_FIXTURE,
   ADVENTURE_LIST_FIXTURE,
   ADVENTURE_SETTINGS_FIXTURE,
+  AI_TEST_RESPONSE_FIXTURE,
   AUTH_FIXTURE,
   BRANCH_TREE_FIXTURE,
   CHARACTER_FIXTURE,
   CLOCK_TICK_FIXTURE,
+  CREDIT_PACKAGE_FIXTURES,
   DICE_ROLL_FIXTURE,
   EFFECTIVE_SETTINGS_FIXTURE,
   IMAGE_CAROUSEL_FIXTURE,
@@ -160,6 +162,52 @@ export type WalletResponse = WalletResource;
 export interface WalletTopUpRequest {
   readonly amount: number;
   readonly package_id?: string | null;
+}
+
+/**
+ * Stage 8-T01 — public credit packages. The SPA fetches the active
+ * packages via `GET /api/credit-packages` so the top-up cards on
+ * `/web/wallet` always reflect the seeded catalogue. The canonical
+ * `slug` is what `POST /api/wallet/top-up` expects in
+ * `package_slug` (the older `package_id` alias is still accepted by
+ * the API for backward compatibility).
+ */
+export interface CreditPackageResource {
+  readonly slug: string;
+  readonly name: string;
+  readonly credits: number;
+  readonly price_cents: number;
+  readonly currency: string;
+  readonly is_active: boolean;
+}
+export type CreditPackagesResponse = ReadonlyArray<CreditPackageResource>;
+
+/**
+ * Stage 8-T02 — wallet Test-LLM probe. POSTs a fixed prompt to
+ * `POST /api/me/ai/test`, which charges credits via the S8-T01
+ * TransactionService and returns the LLM response + balance delta.
+ */
+export interface AiTestRequest {
+  readonly prompt: string;
+  readonly idempotency_key?: string;
+}
+export interface AiTestUsage {
+  readonly input_tokens: number;
+  readonly output_tokens: number;
+  readonly total_tokens: number;
+  readonly latency_ms: number;
+  readonly finish_reason: string;
+}
+export interface AiTestResponse {
+  readonly text: string;
+  readonly model: string;
+  readonly provider: string;
+  readonly usage: AiTestUsage;
+  readonly cost_credit: number;
+  readonly balance_before: number;
+  readonly balance_after: number;
+  readonly transaction_id: number;
+  readonly transaction_uuid: string;
 }
 
 export type ReferralResponse = ReferralResource;
@@ -490,6 +538,11 @@ export interface ApiClient {
     body: WalletTopUpRequest,
     options?: RequestOptions,
   ) => Promise<WalletResponse>;
+  readonly listCreditPackages: (options?: RequestOptions) => Promise<CreditPackagesResponse>;
+  readonly testAi: (
+    body: AiTestRequest,
+    options?: RequestOptions,
+  ) => Promise<AiTestResponse>;
 
   // Referrals
   readonly getReferral: (options?: RequestOptions) => Promise<ReferralResponse>;
@@ -1482,6 +1535,10 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
     getWallet: (options) => fetcher('/wallet', { ...options, method: 'GET' }) as Promise<WalletResponse>,
     topUpWallet: (body, options) =>
       fetcher('/wallet/top-up', { ...options, method: 'POST', body }) as Promise<WalletResponse>,
+    listCreditPackages: (options) =>
+      fetcher('/credit-packages', { ...options, method: 'GET' }) as Promise<CreditPackagesResponse>,
+    testAi: (body, options) =>
+      fetcher('/me/ai/test', { ...options, method: 'POST', body }) as Promise<AiTestResponse>,
 
     // Referrals
     getReferral: (options) =>
@@ -1733,9 +1790,11 @@ export type {
 export {
   ADVENTURE_FIXTURE,
   ADVENTURE_SETTINGS_FIXTURE,
+  AI_TEST_RESPONSE_FIXTURE,
   BRANCH_TREE_FIXTURE,
   CHARACTER_FIXTURE,
   CLOCK_TICK_FIXTURE,
+  CREDIT_PACKAGE_FIXTURES,
   DICE_ROLL_FIXTURE,
   EFFECTIVE_SETTINGS_FIXTURE,
   IMAGE_CAROUSEL_FIXTURE,

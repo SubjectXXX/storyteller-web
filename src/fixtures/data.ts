@@ -427,6 +427,60 @@ export const WALLET_RESOURCE_FIXTURE: WalletResource = {
   updated_at: '2026-09-22T17:00:00Z',
 };
 
+// ---------- Stage 8 — Credit packages (S8-T01) ----------------------------
+//
+// Mirrors App\Http\Resources\CreditPackageResource on the API.
+// Used by the /web/wallet page to render the top-up list and to send the
+// canonical `package_slug` to POST /api/wallet/top-up.
+export interface CreditPackageResource {
+  readonly slug: string;
+  readonly name: string;
+  readonly credits: number;
+  readonly price_cents: number;
+  readonly currency: string;
+  readonly is_active: boolean;
+}
+
+export const CREDIT_PACKAGE_FIXTURES: ReadonlyArray<CreditPackageResource> = [
+  { slug: 'starter', name: 'Starter', credits: 500, price_cents: 999, currency: 'USD', is_active: true },
+  { slug: 'value', name: 'Value', credits: 1500, price_cents: 2499, currency: 'USD', is_active: true },
+  { slug: 'pro', name: 'Pro Pack', credits: 5000, price_cents: 6999, currency: 'USD', is_active: true },
+];
+
+// ---------- Stage 8 — Test-LLM probe response (S8-T02) --------------------
+//
+// Mirrors App\Http\Controllers\Me\AiTestController. The wallet page
+// posts a fixed prompt and renders the text + usage + balance delta.
+export interface AiTestResponse {
+  readonly text: string;
+  readonly model: string;
+  readonly provider: string;
+  readonly usage: {
+    readonly input_tokens: number;
+    readonly output_tokens: number;
+    readonly total_tokens: number;
+    readonly latency_ms: number;
+    readonly finish_reason: string;
+  };
+  readonly cost_credit: number;
+  readonly balance_before: number;
+  readonly balance_after: number;
+  readonly transaction_id: number;
+  readonly transaction_uuid: string;
+}
+
+export const AI_TEST_RESPONSE_FIXTURE: AiTestResponse = {
+  text: 'The lantern glows softly as you turn the page…',
+  model: 'qwen/qwen3-vl-4b',
+  provider: 'lmstudio',
+  usage: { input_tokens: 42, output_tokens: 96, total_tokens: 138, latency_ms: 12450, finish_reason: 'stop' },
+  cost_credit: 1,
+  balance_before: 500,
+  balance_after: 499,
+  transaction_id: 1,
+  transaction_uuid: '00000000-0000-0000-0000-000000000001',
+};
+
 export interface ReferralResource {
   readonly code: string;
   readonly count: number;
