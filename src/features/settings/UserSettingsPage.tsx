@@ -6,7 +6,9 @@
  *   - explanatory copy,
  *   - validation (via the group's option list),
  *   - an Inherited / Locked / Reset affordance when the scenario locks or
- *     the adventure overrides the value (per AGENTS.md rule).
+ *     the adventure overrides the value (per AGENTS.md rule),
+ *   - a live typography preview that reflects font family, font size, line
+ *     height, and the reduced-motion toggle in real time.
  *
  * The page is wired to `usePlayerSettings` + `useUpdatePlayerSettings` and
  * falls back to the local fixture when the API worker hasn't shipped the
@@ -98,6 +100,46 @@ const controlStyle: CSSProperties = {
   minHeight: 'var(--control-touch-min)',
   minWidth: 160,
 };
+
+/**
+ * Preview copy used by the live typography surface. Pulled from the
+ * "The Cartographer's Last Letter" scenario fixture so the player
+ * recognises the look of the rendered narration.
+ */
+const PREVIEW_COPY =
+  'The archive exhales damp stone as Imogen lifts the lantern. Rain taps the slate roof in a slow waltz; the cartographer\u2019s letter feels heavier than the paper warrants.';
+
+function fontSizeToPx(size: PlayerSettingsResource['font_size']): number {
+  if (size === 'sm') return 15;
+  if (size === 'lg') return 19;
+  return 17;
+}
+
+function buildPreviewStyle(
+  theme: PlayerSettingsResource['theme'],
+  size: PlayerSettingsResource['font_size'],
+  reducedMotion: boolean,
+): CSSProperties {
+  const palette =
+    theme === 'dark'
+      ? { background: '#11151c', foreground: '#f1ecdf', accent: '#f0c050' }
+      : theme === 'light'
+        ? { background: '#fbf7ee', foreground: '#1c1b18', accent: '#5a3b14' }
+        : { background: 'var(--color-surface)', foreground: 'var(--color-foreground)', accent: 'var(--color-primary)' };
+  return {
+    background: palette.background,
+    color: palette.foreground,
+    fontFamily: 'var(--font-serif)',
+    fontSize: `${fontSizeToPx(size)}px`,
+    lineHeight: 1.45,
+    letterSpacing: '0.01em',
+    padding: 'var(--space-4) var(--space-5)',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--color-border)',
+    ['--color-preview-accent' as string]: palette.accent,
+    transition: reducedMotion ? 'none' : 'background 180ms ease, color 180ms ease, font-size 120ms ease',
+  };
+}
 
 export default function UserSettingsPage(): ReactElement {
   const settingsQuery = usePlayerSettings();
@@ -239,6 +281,35 @@ export default function UserSettingsPage(): ReactElement {
             </fieldset>
           );
         })}
+
+        {/*
+         * Live typography preview — reflects the current `theme`,
+         * `font_size`, and `reduced_motion` selections in real time so the
+         * player sees what their choice will look like on the play surface.
+         * Per S2-T06 + S4-T06.
+         */}
+        <fieldset
+          style={fieldsetStyle}
+          aria-label="Live typography preview"
+          aria-describedby="typography-preview-help"
+        >
+          <legend style={{ padding: '0 var(--space-2)', fontWeight: 'var(--weight-medium)' }}>
+            Live typography preview
+          </legend>
+          <p
+            id="typography-preview-help"
+            style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-xs)', margin: '0 0 var(--space-3) 0' }}
+          >
+            Updates as you change theme, font size, narration verbosity, or the reduced-motion toggle.
+          </p>
+          <div
+            data-testid="typography-preview"
+            aria-live="polite"
+            style={buildPreviewStyle(data.theme, data.font_size, data.reduced_motion)}
+          >
+            <p style={{ margin: 0 }}>{PREVIEW_COPY}</p>
+          </div>
+        </fieldset>
       </div>
     </div>
   );
