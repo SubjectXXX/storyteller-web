@@ -459,6 +459,245 @@ export const SETTINGS_RESOURCE_FIXTURE: SettingsResource = {
   updated_at: '2026-09-22T17:00:00Z',
 };
 
+// ---------- Stage 4 — Player defaults + per-adventure settings (S4-T05/T06) ---
+//
+// The player-defaults document (`/api/me/settings/player-defaults`) carries the
+// eleven user-controlled knobs S4 introduces. The per-adventure endpoint
+// (`/api/adventures/{id}/settings`) returns the same groups but resolves
+// each one against scenario overrides / locks. The effective-settings
+// endpoint (`/api/me/settings/effective`) is the resolved snapshot the
+// player surface consumes for the live typography preview and inheritance
+// tooltips.
+//
+// The contract mirrors the S4-T05 Laravel work — see
+// `storyteller_api/app/Http/Controllers/AdventureSettings` for the wire.
+
+export type SettingGroupState = 'inherit' | 'override' | 'reset' | 'locked';
+export type SettingSource = 'user' | 'adventure' | 'scenario';
+
+export interface PlayerSettingsResource {
+  readonly typewriter_mode: boolean;
+  readonly theme: 'light' | 'dark' | 'system';
+  readonly content_rating: 'all-ages' | 'mature' | 'restricted';
+  readonly action_mode: 'guided' | 'sandbox' | 'ask';
+  readonly world_genre: 'romance' | 'mystery' | 'hope' | 'conflict' | 'any';
+  readonly language: string;
+  readonly narration_verbosity: 'terse' | 'balanced' | 'rich';
+  readonly suggested_choices_count: number;
+  readonly dice_visibility: 'hidden' | 'summary' | 'detailed';
+  readonly npc_dialogue_density: 'minimal' | 'natural' | 'verbose';
+  readonly font_size: 'sm' | 'md' | 'lg';
+  readonly reduced_motion: boolean;
+  readonly updated_at: string;
+}
+
+export interface PlayerSettingsUpdateRequest {
+  readonly typewriter_mode?: boolean;
+  readonly theme?: PlayerSettingsResource['theme'];
+  readonly content_rating?: PlayerSettingsResource['content_rating'];
+  readonly action_mode?: PlayerSettingsResource['action_mode'];
+  readonly world_genre?: PlayerSettingsResource['world_genre'];
+  readonly language?: string;
+  readonly narration_verbosity?: PlayerSettingsResource['narration_verbosity'];
+  readonly suggested_choices_count?: number;
+  readonly dice_visibility?: PlayerSettingsResource['dice_visibility'];
+  readonly npc_dialogue_density?: PlayerSettingsResource['npc_dialogue_density'];
+  readonly font_size?: PlayerSettingsResource['font_size'];
+  readonly reduced_motion?: boolean;
+}
+
+export const PLAYER_SETTINGS_FIXTURE: PlayerSettingsResource = {
+  typewriter_mode: true,
+  theme: 'system',
+  content_rating: 'mature',
+  action_mode: 'guided',
+  world_genre: 'any',
+  language: 'en',
+  narration_verbosity: 'balanced',
+  suggested_choices_count: 3,
+  dice_visibility: 'summary',
+  npc_dialogue_density: 'natural',
+  font_size: 'md',
+  reduced_motion: false,
+  updated_at: '2026-09-22T17:00:00Z',
+};
+
+export interface AdventureSettingGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly value: string | number | boolean | null;
+  readonly effective_value: string | number | boolean;
+  readonly state: SettingGroupState;
+  readonly source: SettingSource;
+  readonly options?: ReadonlyArray<string>;
+  readonly locked_reason: string | null;
+}
+
+export interface AdventureSettingsResource {
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly groups: ReadonlyArray<AdventureSettingGroup>;
+  readonly updated_at: string;
+  /** Opaque etag for optimistic concurrency on `PUT /api/adventures/{id}/settings`. */
+  readonly etag: string;
+}
+
+export interface AdventureSettingsGroupUpdate {
+  readonly id: string;
+  readonly state: SettingGroupState;
+  /** Explicit override; required when state === 'override', ignored otherwise. */
+  readonly value: string | number | boolean | null;
+}
+
+export interface AdventureSettingsUpdateRequest {
+  readonly branch_id?: number | null;
+  readonly groups: ReadonlyArray<AdventureSettingsGroupUpdate>;
+  /** Optional If-Match token; sent on PUT so the server rejects stale edits. */
+  readonly if_match?: string | null;
+}
+
+export const ADVENTURE_SETTINGS_FIXTURE: AdventureSettingsResource = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  updated_at: '2026-09-22T17:00:00Z',
+  etag: 'W/"adventure-settings-fixture-v1"',
+  groups: [
+    {
+      id: 'typewriter_mode',
+      label: 'Typewriter reveal',
+      value: null,
+      effective_value: true,
+      state: 'inherit',
+      source: 'user',
+      options: undefined,
+      locked_reason: null,
+    },
+    {
+      id: 'theme',
+      label: 'Theme',
+      value: null,
+      effective_value: 'dark',
+      state: 'inherit',
+      source: 'user',
+      options: ['light', 'dark', 'system'],
+      locked_reason: null,
+    },
+    {
+      id: 'narration_verbosity',
+      label: 'Narration verbosity',
+      value: 'rich',
+      effective_value: 'rich',
+      state: 'override',
+      source: 'adventure',
+      options: ['terse', 'balanced', 'rich'],
+      locked_reason: null,
+    },
+    {
+      id: 'content_rating',
+      label: 'Content rating',
+      value: null,
+      effective_value: 'mature',
+      state: 'inherit',
+      source: 'user',
+      options: ['all-ages', 'mature', 'restricted'],
+      locked_reason: null,
+    },
+    {
+      id: 'action_mode',
+      label: 'Action mode',
+      value: null,
+      effective_value: 'guided',
+      state: 'inherit',
+      source: 'user',
+      options: ['guided', 'sandbox', 'ask'],
+      locked_reason: null,
+    },
+    {
+      id: 'world_genre',
+      label: 'World genre preference',
+      value: null,
+      effective_value: 'any',
+      state: 'inherit',
+      source: 'user',
+      options: ['romance', 'mystery', 'hope', 'conflict', 'any'],
+      locked_reason: null,
+    },
+    {
+      id: 'language',
+      label: 'Narration language',
+      value: null,
+      effective_value: 'en',
+      state: 'locked',
+      source: 'scenario',
+      options: ['en', 'es', 'fr', 'de', 'ja'],
+      locked_reason: 'This scenario ships English-only narration assets.',
+    },
+    {
+      id: 'suggested_choices_count',
+      label: 'Suggested choices',
+      value: null,
+      effective_value: 3,
+      state: 'inherit',
+      source: 'user',
+      options: ['2', '3', '4'],
+      locked_reason: null,
+    },
+    {
+      id: 'dice_visibility',
+      label: 'Dice visibility',
+      value: null,
+      effective_value: 'summary',
+      state: 'inherit',
+      source: 'user',
+      options: ['hidden', 'summary', 'detailed'],
+      locked_reason: null,
+    },
+    {
+      id: 'npc_dialogue_density',
+      label: 'NPC dialogue density',
+      value: null,
+      effective_value: 'natural',
+      state: 'inherit',
+      source: 'user',
+      options: ['minimal', 'natural', 'verbose'],
+      locked_reason: null,
+    },
+  ],
+};
+
+export interface EffectiveSettingGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly effective_value: string | number | boolean;
+  readonly source: SettingSource;
+  readonly state: SettingGroupState;
+  readonly locked_reason: string | null;
+}
+
+export interface EffectiveSettingsResource {
+  readonly adventure_id: number;
+  readonly branch_id: number | null;
+  readonly groups: ReadonlyArray<EffectiveSettingGroup>;
+  readonly updated_at: string;
+  /** Opaque etag mirroring the source `AdventureSettingsResource`. */
+  readonly etag: string;
+}
+
+export const EFFECTIVE_SETTINGS_FIXTURE: EffectiveSettingsResource = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  updated_at: '2026-09-22T17:00:00Z',
+  etag: 'W/"adventure-settings-fixture-v1"',
+  groups: ADVENTURE_SETTINGS_FIXTURE.groups.map((g) => ({
+    id: g.id,
+    label: g.label,
+    effective_value: g.effective_value,
+    source: g.source,
+    state: g.state,
+    locked_reason: g.locked_reason,
+  })),
+};
+
 // ---------- Stage 5 — Memory: Recap (S5-T01) --------------------------------
 //
 // The recap endpoint ships a chronicle of recent beats (turns) and the
