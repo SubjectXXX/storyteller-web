@@ -25,12 +25,19 @@ import {
   ADVENTURE_LIST_FIXTURE,
   ADVENTURE_SETTINGS_FIXTURE,
   AUTH_FIXTURE,
+  BRANCH_TREE_FIXTURE,
+  CHARACTER_FIXTURE,
+  CLOCK_TICK_FIXTURE,
+  DICE_ROLL_FIXTURE,
+  EFFECTIVE_SETTINGS_FIXTURE,
   IMAGE_CAROUSEL_FIXTURE,
   IMAGE_JOB_COMPLETED_FIXTURE,
   IMAGE_JOB_QUEUED_FIXTURE,
   LORE_FIXTURE,
+  NPC_FIXTURE,
   PINNED_MEMORY_FIXTURE,
   PLAY_FIXTURE,
+  PLAYER_SETTINGS_FIXTURE,
   RECAP_FIXTURE,
   REFERRAL_RESOURCE_FIXTURE,
   SCENARIO_RESOURCE_FIXTURES,
@@ -46,14 +53,29 @@ import {
   type AuthTokenResource,
   type BranchRedoRequest,
   type BranchResource,
+  type BranchRetryRequest,
+  type BranchTreeNode,
+  type BranchTreeResponse,
+  type BranchUndoRequest,
+  type CharacterResource,
+  type CharacterStat,
+  type CharacterTrait,
+  type ClockTickFixture,
+  type DiceRollFixture,
+  type EffectiveSettingsResource,
   type ImageAsset,
   type ImageJobResponse,
   type ImageJobStatus,
   type LoreEntry,
   type LoreListResponse,
+  type NpcRelationship,
+  type NpcRelationshipKind,
+  type NpcResource,
   type PinnedMemory,
   type PinnedMemoryListResponse,
   type PlayTurnFixture,
+  type PlayerSettingsResource,
+  type PlayerSettingsUpdateRequest,
   type RecapResource,
   type RecapTurn,
   type ReferralResource,
@@ -249,15 +271,7 @@ export interface AiStatusResponse {
 // has not shipped the corresponding route yet.
 
 /**
- * `GET /api/adventures/{id}/recap` (Stage 5 placeholder). Returns the
- * chronicle of recent turns plus the timestamp the LLM last refreshed
- * it. The endpoint is not yet wired on the API; the fixture transport
- * ships a populated sample so the panel renders offline.
- */
-export type RecapResponse = RecapResource;
-
-/**
- * `GET /api/adventures/{id}/lore?key=...` — fetch a single lore entry by
+ * `GET /api/adventures/{id}/lore?key=... — fetch a single lore entry by
  * its canonical key. The full list (without `?key=`) is also exposed via
  * `GET /api/adventures/{id}/lore`. Both share `LoreListResponse` so the
  * SPA can render the full list and highlight the focused entry.
@@ -423,6 +437,12 @@ export interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   readonly body?: unknown;
   readonly signal?: AbortSignal;
+  /**
+   * Extra request headers. Used by the S4-T05/S4-T06 settings endpoints to
+   * pass the `If-Match` ETag so the server rejects stale edits when another
+   * tab has saved in the meantime.
+   */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 export type Fetcher = (path: string, options?: RequestOptions) => Promise<unknown>;
@@ -536,7 +556,6 @@ export interface ApiClient {
   readonly getAiStatus: (options?: RequestOptions) => Promise<AiStatusResponse>;
 
   // Stage 5 — Memory & context (S5-T01..S5-T02)
-  readonly getRecap: (adventureId: number, options?: RequestOptions) => Promise<RecapResponse>;
   readonly getLore: (
     adventureId: number,
     query?: LoreListQuery,
@@ -600,6 +619,14 @@ export function liveFetcher(baseUrl: string = DEFAULT_BASE_URL, authToken?: stri
     }
     if (authToken) {
       headers.Authorization = `Bearer ${authToken}`;
+    }
+    // Caller-supplied headers (e.g. `If-Match` for S4-T05 settings PUTs).
+    // They win on collision so callers can override auth/content-type when
+    // they really need to.
+    if (options.headers) {
+      for (const [name, value] of Object.entries(options.headers)) {
+        headers[name] = value;
+      }
     }
 
     const url = path.startsWith('http') ? path : `${baseUrl}${path}`;
@@ -1168,6 +1195,89 @@ export function fixtureFetcher(): Fetcher {
       } satisfies SettingsResponse;
     }
 
+    // ----- Stage 4 — Player defaults (S4-T06) -----
+    if (method === 'GET' && path_ === '/me/settings/player-defaults') {
+      return PLAYER_SETTINGS_FIXTURE satisfies PlayerSettingsResponse;
+    }
+    if (method === 'PUT' && path_ === '/me/settings/player-defaults') {
+      const body = (options.body ?? {}) as PlayerSettingsUpdateRequest;
+      // When the caller sent an `If-Match` header we honour optimistic
+      // concurrency — a stale ETag is rejected with 409 so the SPA can
+      // re-fetch and surface the conflict UI.
+      const ifMatch = options.headers?.['If-Match'] ?? options.headers?.['if-match'];
+      if (ifMatch !== undefined && ifMatch !== PLAYER_SETTINGS_FIXTURE.updated_at) {
+        // The fixture ETag is the `updated_at` field; a request with the
+        // current value succeeds, anything else is rejected.
+        throw new ApiError(409, {
+          message: 'Player defaults changed elsewhere — refresh and retry.',
+          code: 'etag_conflict',
+        });
+      }
+      return {
+        ...PLAYER_SETTINGS_FIXTURE,
+        ...body,
+        updated_at: new Date().toISOString(),
+      } satisfies PlayerSettingsResponse;
+    }
+
+    // ----- Stage 4 — Per-adventure settings (S4-T05) -----
+    if (method === 'GET' && /^\/adventures\/\d+\/settings$/.test(path_)) {
+      return ADVENTURE_SETTINGS_FIXTURE satisfies AdventureSettingsResponse;
+    }
+    if (method === 'PUT' && /^\/adventures\/\d+\/settings$/.test(path_)) {
+      const ifMatch = options.headers?.['If-Match'] ?? options.headers?.['if-match'];
+      if (
+        ifMatch !== undefined &&
+        ifMatch !== ADVENTURE_SETTINGS_FIXTURE.etag &&
+        // The empty ETag is what `useAdventureSettings` sends when the
+        // SPA hasn't observed the document yet — let it through so the
+        // first PUT always wins.
+        ifMatch !== '' &&
+        ifMatch !== '*'
+      ) {
+        throw new ApiError(409, {
+          message:
+            'Adventure settings changed in another tab. Reload to pick up the latest values.',
+          code: 'etag_conflict',
+        });
+      }
+      const body = (options.body ?? {}) as AdventureSettingsUpdateRequest;
+      // Apply each group update to the fixture so subsequent reads reflect
+      // the override. Stays cheap because the fixture has at most ~11
+      // groups.
+      const nextGroups = ADVENTURE_SETTINGS_FIXTURE.groups.map((g) => {
+        const update = body.groups?.find((u) => u.id === g.id);
+        if (!update) return g;
+        if (update.state === 'inherit') {
+          return { ...g, value: null, state: 'inherit' as const, source: 'user' as const };
+        }
+        if (update.state === 'reset') {
+          return { ...g, value: null, state: 'reset' as const, source: 'user' as const };
+        }
+        if (update.state === 'locked') return g;
+        return {
+          ...g,
+          value: update.value as string | number | boolean | null,
+          state: 'override' as const,
+          source: 'adventure' as const,
+        };
+      });
+      const updatedAt = new Date().toISOString();
+      return {
+        ...ADVENTURE_SETTINGS_FIXTURE,
+        groups: nextGroups.map((g) =>
+          g.state === 'override' ? { ...g, effective_value: g.value as string | number | boolean } : g,
+        ),
+        updated_at: updatedAt,
+        etag: `W/"adventure-settings-${updatedAt}"`,
+      } satisfies AdventureSettingsResponse;
+    }
+
+    // ----- Stage 4 — Effective settings (S4-T05 + S4-T06) -----
+    if (method === 'GET' && path_.startsWith('/me/settings/effective')) {
+      return EFFECTIVE_SETTINGS_FIXTURE satisfies EffectiveSettingsResponse;
+    }
+
     // ----- AI status (public) -----
     if (method === 'GET' && path_ === '/admin/ai/status') {
       return {
@@ -1409,12 +1519,22 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
         ...options,
         method: 'GET',
       }) as Promise<AdventureSettingsResponse>,
-    updateAdventureSettings: (adventureId, body, options) =>
-      fetcher(`/adventures/${adventureId}/settings`, {
+    updateAdventureSettings: (adventureId, body, options) => {
+      // Pull `if_match` out of the body and turn it into an HTTP header
+      // so the server can reject stale writes. The remaining body fields
+      // are still serialized for the request payload.
+      const { if_match, ...payload } = body;
+      const headers: Record<string, string> = { ...(options?.headers ?? {}) };
+      if (typeof if_match === 'string' && if_match.length > 0) {
+        headers['If-Match'] = if_match;
+      }
+      return fetcher(`/adventures/${adventureId}/settings`, {
         ...options,
         method: 'PUT',
-        body,
-      }) as Promise<AdventureSettingsResponse>,
+        body: payload,
+        headers,
+      }) as Promise<AdventureSettingsResponse>;
+    },
     getEffectiveSettings: (adventureId, branchId, options) => {
       const params = new URLSearchParams();
       params.set('adventure_id', String(adventureId));
@@ -1441,11 +1561,6 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
       fetcher('/admin/ai/status', { ...options, method: 'GET' }) as Promise<AiStatusResponse>,
 
     // Stage 5 — Memory & context (S5-T01..S5-T02)
-    getRecap: (adventureId, options) =>
-      fetcher(`/adventures/${adventureId}/recap`, {
-        ...options,
-        method: 'GET',
-      }) as Promise<RecapResponse>,
     getLore: (adventureId, query, options) => {
       const params = new URLSearchParams();
       if (query?.key) params.set('key', query.key);
@@ -1555,13 +1670,28 @@ export type {
   AuthTokenResource,
   BranchRedoRequest,
   BranchResource,
+  BranchRetryRequest,
+  BranchTreeNode,
+  BranchTreeResponse,
+  BranchUndoRequest,
+  CharacterResource,
+  CharacterStat,
+  CharacterTrait,
+  ClockTickFixture,
+  DiceRollFixture,
+  EffectiveSettingsResource,
   ImageAsset,
   ImageJobResponse,
   ImageJobStatus,
   LoreEntry,
   LoreListResponse,
+  NpcRelationship,
+  NpcRelationshipKind,
+  NpcResource,
   PinnedMemory,
   PinnedMemoryListResponse,
+  PlayerSettingsResource,
+  PlayerSettingsUpdateRequest,
   RecapResource,
   RecapTurn,
   ReferralResource,
@@ -1578,10 +1708,18 @@ export type {
 
 export {
   ADVENTURE_FIXTURE,
+  ADVENTURE_SETTINGS_FIXTURE,
+  BRANCH_TREE_FIXTURE,
+  CHARACTER_FIXTURE,
+  CLOCK_TICK_FIXTURE,
+  DICE_ROLL_FIXTURE,
+  EFFECTIVE_SETTINGS_FIXTURE,
   IMAGE_CAROUSEL_FIXTURE,
   IMAGE_JOB_COMPLETED_FIXTURE,
   IMAGE_JOB_QUEUED_FIXTURE,
   LORE_FIXTURE,
+  NPC_FIXTURE,
   PINNED_MEMORY_FIXTURE,
+  PLAYER_SETTINGS_FIXTURE,
   RECAP_FIXTURE,
 };

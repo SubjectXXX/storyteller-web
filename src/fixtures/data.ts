@@ -459,6 +459,245 @@ export const SETTINGS_RESOURCE_FIXTURE: SettingsResource = {
   updated_at: '2026-09-22T17:00:00Z',
 };
 
+// ---------- Stage 4 — Player defaults + per-adventure settings (S4-T05/T06) ---
+//
+// The player-defaults document (`/api/me/settings/player-defaults`) carries the
+// eleven user-controlled knobs S4 introduces. The per-adventure endpoint
+// (`/api/adventures/{id}/settings`) returns the same groups but resolves
+// each one against scenario overrides / locks. The effective-settings
+// endpoint (`/api/me/settings/effective`) is the resolved snapshot the
+// player surface consumes for the live typography preview and inheritance
+// tooltips.
+//
+// The contract mirrors the S4-T05 Laravel work — see
+// `storyteller_api/app/Http/Controllers/AdventureSettings` for the wire.
+
+export type SettingGroupState = 'inherit' | 'override' | 'reset' | 'locked';
+export type SettingSource = 'user' | 'adventure' | 'scenario';
+
+export interface PlayerSettingsResource {
+  readonly typewriter_mode: boolean;
+  readonly theme: 'light' | 'dark' | 'system';
+  readonly content_rating: 'all-ages' | 'mature' | 'restricted';
+  readonly action_mode: 'guided' | 'sandbox' | 'ask';
+  readonly world_genre: 'romance' | 'mystery' | 'hope' | 'conflict' | 'any';
+  readonly language: string;
+  readonly narration_verbosity: 'terse' | 'balanced' | 'rich';
+  readonly suggested_choices_count: number;
+  readonly dice_visibility: 'hidden' | 'summary' | 'detailed';
+  readonly npc_dialogue_density: 'minimal' | 'natural' | 'verbose';
+  readonly font_size: 'sm' | 'md' | 'lg';
+  readonly reduced_motion: boolean;
+  readonly updated_at: string;
+}
+
+export interface PlayerSettingsUpdateRequest {
+  readonly typewriter_mode?: boolean;
+  readonly theme?: PlayerSettingsResource['theme'];
+  readonly content_rating?: PlayerSettingsResource['content_rating'];
+  readonly action_mode?: PlayerSettingsResource['action_mode'];
+  readonly world_genre?: PlayerSettingsResource['world_genre'];
+  readonly language?: string;
+  readonly narration_verbosity?: PlayerSettingsResource['narration_verbosity'];
+  readonly suggested_choices_count?: number;
+  readonly dice_visibility?: PlayerSettingsResource['dice_visibility'];
+  readonly npc_dialogue_density?: PlayerSettingsResource['npc_dialogue_density'];
+  readonly font_size?: PlayerSettingsResource['font_size'];
+  readonly reduced_motion?: boolean;
+}
+
+export const PLAYER_SETTINGS_FIXTURE: PlayerSettingsResource = {
+  typewriter_mode: true,
+  theme: 'system',
+  content_rating: 'mature',
+  action_mode: 'guided',
+  world_genre: 'any',
+  language: 'en',
+  narration_verbosity: 'balanced',
+  suggested_choices_count: 3,
+  dice_visibility: 'summary',
+  npc_dialogue_density: 'natural',
+  font_size: 'md',
+  reduced_motion: false,
+  updated_at: '2026-09-22T17:00:00Z',
+};
+
+export interface AdventureSettingGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly value: string | number | boolean | null;
+  readonly effective_value: string | number | boolean;
+  readonly state: SettingGroupState;
+  readonly source: SettingSource;
+  readonly options?: ReadonlyArray<string>;
+  readonly locked_reason: string | null;
+}
+
+export interface AdventureSettingsResource {
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly groups: ReadonlyArray<AdventureSettingGroup>;
+  readonly updated_at: string;
+  /** Opaque etag for optimistic concurrency on `PUT /api/adventures/{id}/settings`. */
+  readonly etag: string;
+}
+
+export interface AdventureSettingsGroupUpdate {
+  readonly id: string;
+  readonly state: SettingGroupState;
+  /** Explicit override; required when state === 'override', ignored otherwise. */
+  readonly value: string | number | boolean | null;
+}
+
+export interface AdventureSettingsUpdateRequest {
+  readonly branch_id?: number | null;
+  readonly groups: ReadonlyArray<AdventureSettingsGroupUpdate>;
+  /** Optional If-Match token; sent on PUT so the server rejects stale edits. */
+  readonly if_match?: string | null;
+}
+
+export const ADVENTURE_SETTINGS_FIXTURE: AdventureSettingsResource = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  updated_at: '2026-09-22T17:00:00Z',
+  etag: 'W/"adventure-settings-fixture-v1"',
+  groups: [
+    {
+      id: 'typewriter_mode',
+      label: 'Typewriter reveal',
+      value: null,
+      effective_value: true,
+      state: 'inherit',
+      source: 'user',
+      options: undefined,
+      locked_reason: null,
+    },
+    {
+      id: 'theme',
+      label: 'Theme',
+      value: null,
+      effective_value: 'dark',
+      state: 'inherit',
+      source: 'user',
+      options: ['light', 'dark', 'system'],
+      locked_reason: null,
+    },
+    {
+      id: 'narration_verbosity',
+      label: 'Narration verbosity',
+      value: 'rich',
+      effective_value: 'rich',
+      state: 'override',
+      source: 'adventure',
+      options: ['terse', 'balanced', 'rich'],
+      locked_reason: null,
+    },
+    {
+      id: 'content_rating',
+      label: 'Content rating',
+      value: null,
+      effective_value: 'mature',
+      state: 'inherit',
+      source: 'user',
+      options: ['all-ages', 'mature', 'restricted'],
+      locked_reason: null,
+    },
+    {
+      id: 'action_mode',
+      label: 'Action mode',
+      value: null,
+      effective_value: 'guided',
+      state: 'inherit',
+      source: 'user',
+      options: ['guided', 'sandbox', 'ask'],
+      locked_reason: null,
+    },
+    {
+      id: 'world_genre',
+      label: 'World genre preference',
+      value: null,
+      effective_value: 'any',
+      state: 'inherit',
+      source: 'user',
+      options: ['romance', 'mystery', 'hope', 'conflict', 'any'],
+      locked_reason: null,
+    },
+    {
+      id: 'language',
+      label: 'Narration language',
+      value: null,
+      effective_value: 'en',
+      state: 'locked',
+      source: 'scenario',
+      options: ['en', 'es', 'fr', 'de', 'ja'],
+      locked_reason: 'This scenario ships English-only narration assets.',
+    },
+    {
+      id: 'suggested_choices_count',
+      label: 'Suggested choices',
+      value: null,
+      effective_value: 3,
+      state: 'inherit',
+      source: 'user',
+      options: ['2', '3', '4'],
+      locked_reason: null,
+    },
+    {
+      id: 'dice_visibility',
+      label: 'Dice visibility',
+      value: null,
+      effective_value: 'summary',
+      state: 'inherit',
+      source: 'user',
+      options: ['hidden', 'summary', 'detailed'],
+      locked_reason: null,
+    },
+    {
+      id: 'npc_dialogue_density',
+      label: 'NPC dialogue density',
+      value: null,
+      effective_value: 'natural',
+      state: 'inherit',
+      source: 'user',
+      options: ['minimal', 'natural', 'verbose'],
+      locked_reason: null,
+    },
+  ],
+};
+
+export interface EffectiveSettingGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly effective_value: string | number | boolean;
+  readonly source: SettingSource;
+  readonly state: SettingGroupState;
+  readonly locked_reason: string | null;
+}
+
+export interface EffectiveSettingsResource {
+  readonly adventure_id: number;
+  readonly branch_id: number | null;
+  readonly groups: ReadonlyArray<EffectiveSettingGroup>;
+  readonly updated_at: string;
+  /** Opaque etag mirroring the source `AdventureSettingsResource`. */
+  readonly etag: string;
+}
+
+export const EFFECTIVE_SETTINGS_FIXTURE: EffectiveSettingsResource = {
+  adventure_id: ADVENTURE_FIXTURE.id,
+  branch_id: ADVENTURE_FIXTURE.current_branch.id,
+  updated_at: '2026-09-22T17:00:00Z',
+  etag: 'W/"adventure-settings-fixture-v1"',
+  groups: ADVENTURE_SETTINGS_FIXTURE.groups.map((g) => ({
+    id: g.id,
+    label: g.label,
+    effective_value: g.effective_value,
+    source: g.source,
+    state: g.state,
+    locked_reason: g.locked_reason,
+  })),
+};
+
 // ---------- Stage 5 — Memory: Recap (S5-T01) --------------------------------
 //
 // The recap endpoint ships a chronicle of recent beats (turns) and the
@@ -680,4 +919,214 @@ export const IMAGE_JOB_COMPLETED_FIXTURE: ImageJobResponse = {
   status: 'completed',
   asset: IMAGE_ASSET_FIXTURE,
   updated_at: '2026-09-22T18:00:02Z',
+};
+// ---------- Stage 4 — World panels (S4-T01) --------------------------------
+//
+// These resource shapes mirror the S4-T01 controller responses. The SPA
+// carries the contract locally so the API worker can implement against the
+// same fields without an SPA rewrite.
+
+export interface CharacterStat {
+  readonly id: string;
+  readonly label: string;
+  readonly value: number;
+  readonly max: number | null;
+  readonly icon?: string | null;
+}
+
+export interface CharacterTrait {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string | null;
+}
+
+export interface CharacterResource {
+  readonly id: number;
+  readonly adventure_id: number;
+  readonly branch_id: number;
+  readonly name: string;
+  readonly role: string;
+  readonly portrait_url: string | null;
+  readonly stats: ReadonlyArray<CharacterStat>;
+  readonly traits: ReadonlyArray<CharacterTrait>;
+  readonly notes: string | null;
+}
+
+export const CHARACTER_FIXTURE: CharacterResource = {
+  id: 1,
+  adventure_id: 1,
+  branch_id: 1,
+  name: 'Imogen Vex',
+  role: 'Investigative journalist',
+  portrait_url: null,
+  stats: [
+    { id: 'resolve', label: 'Resolve', value: 4, max: 6 },
+    { id: 'reputation', label: 'Reputation', value: 3, max: 5 },
+    { id: 'fortune', label: 'Fortune', value: 2, max: null },
+  ],
+  traits: [
+    { id: 'curious', label: 'Curious', description: 'Drawn to questions others shy away from.' },
+    { id: 'careful', label: 'Careful', description: null },
+  ],
+  notes: 'Prefers tea over coffee and carries a notebook at all times.',
+};
+
+export type NpcRelationshipKind = 'ally' | 'rival' | 'family' | 'neutral' | 'unknown';
+
+export interface NpcRelationship {
+  readonly target_npc_id: number;
+  readonly target_name: string;
+  readonly kind: NpcRelationshipKind;
+  readonly affinity: number;
+}
+
+export interface NpcResource {
+  readonly id: number;
+  readonly name: string;
+  readonly role: string;
+  readonly disposition: string;
+  readonly location: string | null;
+  readonly portrait_url: string | null;
+  readonly tags: ReadonlyArray<string>;
+  readonly alive: boolean;
+  readonly relationships: ReadonlyArray<NpcRelationship>;
+}
+
+export const NPC_FIXTURE: ReadonlyArray<NpcResource> = [
+  {
+    id: 101,
+    name: 'Captain Morrow',
+    role: 'Harbourmaster',
+    disposition: 'guarded',
+    location: 'Dockside office',
+    portrait_url: null,
+    tags: ['authority', 'knows-the-law'],
+    alive: true,
+    relationships: [
+      { target_npc_id: 102, target_name: 'Lyssa', kind: 'family', affinity: 80 },
+      { target_npc_id: 103, target_name: 'Quentin', kind: 'rival', affinity: 25 },
+    ],
+  },
+  {
+    id: 102,
+    name: 'Lyssa',
+    role: 'Dockhand',
+    disposition: 'friendly',
+    location: 'Warehouse 12',
+    portrait_url: null,
+    tags: ['crew'],
+    alive: true,
+    relationships: [],
+  },
+];
+
+// ---------- Stage 4 — Branch tree + ops (S4-T03) -------------------------
+
+export interface BranchTreeNode {
+  readonly id: number;
+  readonly name: string;
+  readonly depth: number;
+  readonly parent_branch_id: number | null;
+  readonly parent_turn_id: number | null;
+  readonly is_active: boolean;
+  readonly can_retry: boolean;
+  readonly can_undo: boolean;
+  readonly can_redo: boolean;
+  readonly turn_count: number;
+}
+
+export interface BranchTreeResponse {
+  readonly adventure_id: number;
+  readonly active_branch_id: number;
+  readonly branches: ReadonlyArray<BranchTreeNode>;
+}
+
+export const BRANCH_TREE_FIXTURE: BranchTreeResponse = {
+  adventure_id: 1,
+  active_branch_id: 1,
+  branches: [
+    {
+      id: 1,
+      name: 'Root',
+      depth: 0,
+      parent_branch_id: null,
+      parent_turn_id: null,
+      is_active: true,
+      can_retry: true,
+      can_undo: false,
+      can_redo: false,
+      turn_count: 3,
+    },
+    {
+      id: 2,
+      name: 'Followed the ledger',
+      depth: 1,
+      parent_branch_id: 1,
+      parent_turn_id: 2,
+      is_active: false,
+      can_retry: false,
+      can_undo: true,
+      can_redo: true,
+      turn_count: 1,
+    },
+  ],
+};
+
+export interface BranchRetryRequest {
+  readonly turn_id?: number | null;
+  readonly name?: string | null;
+}
+
+export interface BranchUndoRequest {
+  readonly turn_id?: number | null;
+  readonly name?: string | null;
+}
+
+export interface BranchRedoRequest {
+  readonly turn_id?: number | null;
+  readonly name?: string | null;
+}
+
+// ---------- Stage 4 — Dice & clock mechanic events (S4-T01) --------------
+
+export interface DiceRollFixture {
+  readonly kind: 'dice';
+  readonly formula: string;
+  readonly total: number;
+  readonly rolls: ReadonlyArray<number>;
+  readonly modifier: number;
+  readonly success: 'pass' | 'fail' | 'mixed' | null;
+  readonly reason: string | null;
+  readonly actor_id: string | null;
+}
+
+export const DICE_ROLL_FIXTURE: DiceRollFixture = {
+  kind: 'dice',
+  formula: '1d20+3',
+  total: 17,
+  rolls: [14],
+  modifier: 3,
+  success: 'pass',
+  reason: 'Stealth check vs. locked door',
+  actor_id: 'imogen',
+};
+
+export interface ClockTickFixture {
+  readonly kind: 'clock';
+  readonly clock_id: string;
+  readonly label: string;
+  readonly from: number;
+  readonly to: number;
+  readonly max: number;
+  readonly reason: string | null;
+}
+
+export const CLOCK_TICK_FIXTURE: ClockTickFixture = {
+  kind: 'clock',
+  clock_id: 'suspicion',
+  label: 'Suspicion',
+  from: 1,
+  to: 2,
+  max: 6,
+  reason: 'Imogen was seen reading the letter.',
 };

@@ -35,7 +35,7 @@ createRoot(root).render(
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <BrowserRouter>{router()}</BrowserRouter>
+          <BrowserRouter basename="/web">{router()}</BrowserRouter>
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>

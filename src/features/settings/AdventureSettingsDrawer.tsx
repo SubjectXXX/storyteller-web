@@ -130,9 +130,13 @@ export function AdventureSettingsDrawer({
     if (!adventureSettings) return;
     const next: typeof draft = {};
     for (const group of adventureSettings.groups) {
+      const value: string | number | boolean =
+        group.state === 'override' && group.value !== null
+          ? (group.value as string | number | boolean)
+          : group.effective_value;
       next[group.id] = {
         state: group.state,
-        value: group.state === 'override' ? group.value : group.effective_value,
+        value,
       };
     }
     setDraft(next);

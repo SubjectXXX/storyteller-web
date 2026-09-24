@@ -22,7 +22,7 @@
  *     suggested_choices_count: number;
  *     dice_visibility: 'hidden' | 'summary' | 'detailed';
  *     npc_dialogue_density: 'minimal' | 'natural' | 'verbose';
- *     updated_at: string;
+ *     updated_at: string;          // doubles as a weak ETag
  *   }
  *
  * Request body for PUT (`PlayerSettingsUpdateRequest`):
@@ -31,6 +31,8 @@
  *
  * Errors:
  *   - 422 when a value is outside the allowed options for that group
+ *   - 409 ETag mismatch (`code === 'etag_conflict'`) — another tab saved
+ *     first; the SPA re-fetches and surfaces the conflict
  *   - 401 when the player is unauthenticated
  *
  * The mutation invalidates `effectiveSettingsKeys` so the live preview on
@@ -63,6 +65,7 @@ export function usePlayerSettings(): UseQueryResult<PlayerSettingsResource, ApiE
     // User defaults change rarely; 30s keeps the page responsive without
     // pinging the API on every render.
     staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -82,5 +85,24 @@ export function useUpdatePlayerSettings(): UseMutationResult<
       // powers the live typography preview on `<AdventurePage>`.
       void queryClient.invalidateQueries({ queryKey: ['effective-settings'] });
     },
+    onError: (err) => {
+      // On a 409 the cached payload is stale; force a refetch so the next
+      // save attempt sees the new ETag.
+      if (err instanceof ApiError && err.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: playerSettingsKeys.detail() });
+        void queryClient.invalidateQueries({ queryKey: ['effective-settings'] });
+      }
+    },
   });
+}
+
+/**
+ * Returns the latest player-settings `updated_at` token so callers can
+ * send it as `If-Match` on optimistic-concurrency PUTs. The
+ * `liveFetcher` reads the header from `RequestOptions.headers`.
+ */
+export function usePlayerSettingsEtag(): string {
+  const queryClient = useQueryClient();
+  const cached = queryClient.getQueryData<PlayerSettingsResource>(playerSettingsKeys.detail());
+  return cached?.updated_at ?? '';
 }

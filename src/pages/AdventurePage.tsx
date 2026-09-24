@@ -7,14 +7,30 @@ import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
 import { TokenMeter } from '@/components/TokenMeter';
 import { Typewriter } from '@/components/Typewriter';
-import { ApiError } from '@/api-client';
+import { ApiError, type AdventureSettingsUpdateRequest } from '@/api-client';
 import {
   useAdventure,
   useAdventureStream,
   useCreateBranch,
   useSubmitTurn,
 } from '@/hooks/useAdventures';
+import {
+  useAdventureSettings,
+  useAdventureSettingsEtag,
+  useEffectiveSettings,
+  useUpdateAdventureSettings,
+} from '@/hooks/useAdventureSettings';
+import { usePlayerSettings } from '@/hooks/usePlayerSettings';
+import { useBranchTree } from '@/hooks/useBranchTree';
+import { useRetryBranch, useUndoBranch, useRedoBranch } from '@/hooks/useBranchOps';
+import { useCharacter } from '@/hooks/useCharacter';
+import { useNpcRoster } from '@/hooks/useNpcRoster';
+import { useRecap } from '@/hooks/useRecap';
+import { useDiceClock } from '@/hooks/useDiceClock';
+import { useInventory } from '@/hooks/useInventory';
+import { BranchBar } from '@/features/play/BranchBar/BranchBar';
 import { ImagePanel } from '@/features/play/ImagePanel/ImagePanel';
+import { AdventureSettingsDrawer } from '@/features/settings/AdventureSettingsDrawer';
 import { TURN_FIXTURE, type SuggestedChoice } from '@/fixtures/data';
 import type { Quest } from '@/features/play/QuestLog/QuestLog';
 
@@ -104,6 +120,7 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
   const [branchError, setBranchError] = useState<string | null>(null);
   const [isDrawerOpen, setDrawerOpen] = useState(false);
+  const [settingsConflict, setSettingsConflict] = useState<string | null>(null);
   const [livePreview, setLivePreview] = useState<
     | {
         readonly theme?: 'light' | 'dark' | 'system';
@@ -111,6 +128,11 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
       }
     | null
   >(null);
+
+  // Latest ETag from the cached GET response. The drawer wires this into the
+  // PUT so a stale write from another tab is rejected with 409 instead of
+  // silently overwriting the other tab's changes.
+  const adventureEtag = useAdventureSettingsEtag(adventureId);
 
   // Refetch the adventure on window focus so a refresh / re-tab picks up the
   // latest branch version before the player submits another turn.
@@ -203,6 +225,37 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
     }
   }, [adventureQuery, redoBranch, lastTurnId]);
 
+  const onSaveAdventureSettings = useCallback(
+    async (body: AdventureSettingsUpdateRequest) => {
+      setSettingsConflict(null);
+      try {
+        await updateAdventureSettings.mutateAsync({
+          ...body,
+          if_match: adventureEtag,
+        });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          // Optimistic-concurrency collision: another tab updated the
+          // settings first. The hook already invalidated the cached GET
+          // (see `useUpdateAdventureSettings.onError`) so the drawer
+          // re-renders with the fresh server state; we just surface a
+          // toast-equivalent so the player knows to retry.
+          setSettingsConflict(
+            err.message ||
+              'Adventure settings changed in another tab. The drawer now shows the latest values — please retry.',
+          );
+          return;
+        }
+        if (!(err instanceof ApiError)) {
+          // eslint-disable-next-line no-console -- intentional dev signal
+          console.warn('[storyteller/web] save adventure settings failed', err);
+        }
+        throw err;
+      }
+    },
+    [adventureEtag, updateAdventureSettings],
+  );
+
   // Render the API error state if the adventure cannot be loaded.
   if (adventureQuery.error) {
     if (adventureQuery.error instanceof ApiError && adventureQuery.error.status === 404) {
@@ -272,7 +325,7 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   return (
     <div data-testid={ADVENTURE_PAGE_TESTIDS.surface}>
       <PageHeader
-        eyebrow={`Adventure #${adventure.id} \u00B7 ${adventure.status}`}
+        eyebrow={`Adventure #${adventure.id} · ${adventure.status}`}
         title={adventure.title}
         description={`Branch ${adventure.current_branch.name} (depth ${adventure.current_branch.depth}, version ${adventure.current_branch.version}).`}
         actions={
@@ -442,6 +495,34 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
           turnId={liveTurnId}
         />
       </section>
+
+      {settingsConflict && (
+        <p role="alert" data-testid="settings-conflict" style={noticeStyle}>
+          {settingsConflict}
+          <Button
+            intent="ghost"
+            size="sm"
+            onClick={() => setSettingsConflict(null)}
+            aria-label="Dismiss settings conflict notice"
+          >
+            Dismiss
+          </Button>
+        </p>
+      )}
+
+      {isDrawerOpen && (
+        <AdventureSettingsDrawer
+          adventureId={adventure.id}
+          branchId={adventure.current_branch.id}
+          adventureSettings={adventureSettingsQuery.data}
+          userSettings={playerSettingsQuery.data}
+          isLoading={adventureSettingsQuery.isPending && !adventureSettingsQuery.data}
+          error={adventureSettingsQuery.error ?? null}
+          onSave={(body) => void onSaveAdventureSettings(body)}
+          onClose={() => setDrawerOpen(false)}
+          saving={updateAdventureSettings.isPending}
+        />
+      )}
     </div>
   );
 }

@@ -21,17 +21,19 @@
  *       locked_reason?: string | null;
  *     }>;
  *     updated_at: string;
+ *     etag: string;                                  // weak ETag for If-Match on PUT
  *   }
  *
  * Request body for PUT:
  *   {
  *     branch_id?: number | null;
  *     groups: Array<{ id: string; state: SettingGroupState; value?: string | number | boolean | null }>;
+ *     if_match?: string | null;                      // ETag from the latest GET; server 409s on mismatch
  *   }
  *
  * Errors:
  *   - 422 invalid group id or value outside allowed options
- *   - 409 stale `branch_version`
+ *   - 409 stale ETag (`code === 'etag_conflict'`) — the SPA re-fetches and shows a toast
  *   - 403 player lacks permission to override this group
  *
  * The hook invalidates `effectiveSettingsKeys` on success so the live
@@ -48,6 +50,7 @@ import {
   ApiError,
   type AdventureSettingsResource,
   type AdventureSettingsUpdateRequest,
+  type EffectiveSettingsResource,
 } from '@/api-client';
 import { useApiClient } from '@/api-client';
 
@@ -73,7 +76,11 @@ export function useAdventureSettings(
       return api.getAdventureSettings(adventureId, { signal });
     },
     enabled: typeof adventureId === 'number',
+    // Cache aggressively; refetch on window focus so two tabs stay close
+    // to the latest server snapshot. ETag comparison on PUT still catches
+    // writes that race ahead of us between focus events.
     staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -96,7 +103,35 @@ export function useUpdateAdventureSettings(
       queryClient.setQueryData(adventureSettingsKeys.detail(adventureId), data);
       void queryClient.invalidateQueries({ queryKey: effectiveSettingsKeys.detail(adventureId) });
     },
+    // Optimistic concurrency: on 409 we mark the cached adventure-settings
+    // query as stale and refetch it so the drawer surfaces the latest
+    // server state instead of overwriting the other tab's changes.
+    onError: (err, _vars, _ctx) => {
+      if (err instanceof ApiError && err.status === 409) {
+        void queryClient.invalidateQueries({
+          queryKey: adventureSettingsKeys.detail(adventureId),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: effectiveSettingsKeys.detail(adventureId),
+        });
+      }
+    },
   });
+}
+
+/**
+ * Helper for callers that want to attach the latest ETag to a PUT body
+ * without manually threading it through every component. The hook returns
+ * the cached `etag` (or `''` when nothing is cached yet) so `mutateAsync`
+ * callers can spread it into the request body.
+ */
+export function useAdventureSettingsEtag(adventureId: number | undefined): string {
+  const queryClient = useQueryClient();
+  if (adventureId === undefined) return '';
+  const cached = queryClient.getQueryData<AdventureSettingsResource>(
+    adventureSettingsKeys.detail(adventureId),
+  );
+  return cached?.etag ?? '';
 }
 
 /**
@@ -115,9 +150,9 @@ export const effectiveSettingsKeys = {
 export function useEffectiveSettings(
   adventureId: number | undefined,
   branchId: number | undefined,
-): UseQueryResult<import('@/api-client').EffectiveSettingsResource, ApiError> {
+): UseQueryResult<EffectiveSettingsResource, ApiError> {
   const api = useApiClient();
-  return useQuery<import('@/api-client').EffectiveSettingsResource, ApiError>({
+  return useQuery<EffectiveSettingsResource, ApiError>({
     queryKey: [
       ...effectiveSettingsKeys.detail(adventureId),
       'branch',
@@ -134,5 +169,6 @@ export function useEffectiveSettings(
     },
     enabled: typeof adventureId === 'number',
     staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
