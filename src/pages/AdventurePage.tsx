@@ -298,13 +298,17 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   // Effective settings power the live typography preview: when the
   // player toggles theme / verbosity in the AdventureSettingsDrawer the
   // page picks up the change without waiting for a refetch.
+  // Guard with `?.find` (not `data?.groups.find`) so a shape mismatch
+  // (e.g. older API returning `data.settings` instead of `data.groups`)
+  // can't crash the page with `.find on undefined`.
+  const effectiveGroups = effectiveSettingsQuery.data?.groups;
   const resolvedTheme =
     livePreview?.theme ??
-    effectiveSettingsQuery.data?.groups.find((g) => g.id === 'theme')?.effective_value ??
+    effectiveGroups?.find((g) => g.id === 'theme')?.effective_value ??
     'system';
   const resolvedVerbosity =
     livePreview?.narration_verbosity ??
-    effectiveSettingsQuery.data?.groups.find((g) => g.id === 'narration_verbosity')?.effective_value ??
+    effectiveGroups?.find((g) => g.id === 'narration_verbosity')?.effective_value ??
     'balanced';
 
   // Live typography preview: when the player toggles theme/verbosity in the
