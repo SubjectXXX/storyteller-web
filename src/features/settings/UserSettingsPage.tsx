@@ -120,12 +120,14 @@ function buildPreviewStyle(
   size: PlayerSettingsResource['font_size'],
   reducedMotion: boolean,
 ): CSSProperties {
+  // The preview surface always reflects the design tokens so the player
+  // sees the *actual* light / dark palette (not a hand-picked
+  // approximation). `<html data-theme>` is set by the page on every
+  // draft change, so the variables below flip with the theme selector.
   const palette =
-    theme === 'dark'
-      ? { background: '#11151c', foreground: '#f1ecdf', accent: '#f0c050' }
-      : theme === 'light'
-        ? { background: '#fbf7ee', foreground: '#1c1b18', accent: '#5a3b14' }
-        : { background: 'var(--color-surface)', foreground: 'var(--color-foreground)', accent: 'var(--color-primary)' };
+    theme === 'system'
+      ? { background: 'var(--color-bg)', foreground: 'var(--color-fg)', accent: 'var(--color-primary)' }
+      : { background: 'var(--color-bg)', foreground: 'var(--color-fg)', accent: 'var(--color-primary)' };
   return {
     background: palette.background,
     color: palette.foreground,
@@ -155,6 +157,17 @@ export default function UserSettingsPage(): ReactElement {
   const data: DraftState = draft ?? settingsQuery.data ?? PLAYER_SETTINGS_FIXTURE;
   const dirty = draft !== null;
   const saving = updatePlayerSettings.isPending;
+
+  // "Saved" toast — surfaced for 2s after a successful save so the
+  // player gets visible confirmation (S4-T06 v12 verifier flagged the
+  // lack of a confirmation surface).
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const showSaved = savedAt !== null && Date.now() - savedAt < 2000;
+  useEffect(() => {
+    if (savedAt === null) return;
+    const id = window.setTimeout(() => setSavedAt(null), 2000);
+    return () => window.clearTimeout(id);
+  }, [savedAt]);
 
   // Apply the current theme to <html data-theme="..."> so the document
   // chrome (background, scrollbars, focus rings) follows the player's
@@ -200,6 +213,7 @@ export default function UserSettingsPage(): ReactElement {
     try {
       const next = await updatePlayerSettings.mutateAsync(body);
       setDraft(next);
+      setSavedAt(Date.now());
     } catch (err) {
       // surface inline; mutation already tracks the error in `error`.
       if (!(err instanceof ApiError)) {
@@ -237,6 +251,31 @@ export default function UserSettingsPage(): ReactElement {
           Save failed: {updatePlayerSettings.error.message}
         </p>
       )}
+      <div
+        role="status"
+        aria-live="polite"
+        data-testid="settings-saved-toast"
+        data-saved-state={showSaved ? 'visible' : 'hidden'}
+        style={{
+          position: 'fixed',
+          right: 'var(--space-4)',
+          bottom: 'var(--space-4)',
+          padding: 'var(--space-3) var(--space-4)',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--color-success)',
+          color: 'var(--color-success-foreground)',
+          fontSize: 'var(--text-sm)',
+          fontWeight: 'var(--weight-medium)',
+          boxShadow: '0 6px 18px rgba(0, 0, 0, 0.18)',
+          opacity: showSaved ? 1 : 0,
+          transform: showSaved ? 'translateY(0)' : 'translateY(8px)',
+          transition: 'opacity 200ms ease, transform 200ms ease',
+          pointerEvents: 'none',
+          zIndex: 'var(--z-toast)',
+        }}
+      >
+        Saved
+      </div>
       <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
         {DOMAIN_ORDER.map((domain) => {
           const groups = groupsByDomain[domain] ?? [];
