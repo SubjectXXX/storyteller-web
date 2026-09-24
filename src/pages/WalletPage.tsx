@@ -4,7 +4,14 @@ import { PageHeader } from '@/ui/PageHeader';
 import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
-import { useTopUpWallet, useWallet, useCreditPackages, useTestAi } from '@/hooks';
+import {
+  useConfirmBillingLocalCheckout,
+  useCreateBillingCheckout,
+  useCreditPackages,
+  useTestAi,
+  useTopUpWallet,
+  useWallet,
+} from '@/hooks';
 import {
   AI_TEST_RESPONSE_FIXTURE,
   CREDIT_PACKAGE_FIXTURES,
@@ -30,6 +37,8 @@ export default function WalletPage(): ReactElement {
   const packagesQuery = useCreditPackages();
   const topUpMutation = useTopUpWallet();
   const testAiMutation = useTestAi();
+  const checkoutMutation = useCreateBillingCheckout();
+  const localConfirmMutation = useConfirmBillingLocalCheckout();
 
   const wallet: WalletResource = walletQuery.data ?? WALLET_RESOURCE_FIXTURE;
   const packages: ReadonlyArray<CreditPackageResource> = packagesQuery.data ?? CREDIT_PACKAGE_FIXTURES;
@@ -38,6 +47,9 @@ export default function WalletPage(): ReactElement {
   // and the cost / balance delta. Falls back to the fixture when the
   // user has never run the probe so the page still tells a story.
   const [lastTest, setLastTest] = useState<typeof testAiMutation.data | null>(null);
+  const [lastStripeStatus, setLastStripeStatus] = useState<
+    { status: 'credited' | 'duplicate'; session_id: string; balance: number | null } | null
+  >(null);
   const balanceBelowTestLlm = wallet.balance <= 0;
 
   const handleBuy = async (pkg: CreditPackageResource) => {
@@ -61,6 +73,54 @@ export default function WalletPage(): ReactElement {
       // Error state is rendered inline below; just log in dev.
       // eslint-disable-next-line no-console -- intentional dev signal
       console.warn('[storyteller/web] Test LLM failed', err);
+    }
+  };
+
+  /**
+   * Stripe (S8-T02) top-up path. The api returns a checkout URL —
+   * when `mode === 'local'` the URL points at the api's own local
+   * checkout page so the player can confirm without a real card; in
+   * production it points at `https://checkout.stripe.com/...` and the
+   * SPA simply navigates. We also fire the local confirm afterwards
+   * in local mode (the local-checkout page already does so via a
+   * form post), and stale responses that have already credited are
+   * treated as authoritative.
+   */
+  const handleStripeTopUp = async (pkg: CreditPackageResource): Promise<void> => {
+    try {
+      const result = await checkoutMutation.mutateAsync({ package_slug: pkg.slug });
+      if (typeof result.checkout_url === 'string' && result.checkout_url.length > 0) {
+        if (result.mode === 'local') {
+          // The local-checkout page form-posts to the api; keep the
+          // SPA on the wallet so it can update against the same
+          // session id when the user returns from the page.
+          window.location.assign(result.checkout_url);
+          return;
+        }
+        window.location.assign(result.checkout_url);
+        return;
+      }
+      throw new ApiError(502, { code: 'invalid_checkout_response', message: 'Stripe checkout did not return a URL.' });
+    } catch (err) {
+      // eslint-disable-next-line no-console -- intentional dev signal
+      console.warn('[storyteller/web] Stripe checkout failed', err);
+    }
+  };
+
+  const handleLocalStripeConfirm = async (sessionId: string, pkg: CreditPackageResource): Promise<void> => {
+    try {
+      const result = await localConfirmMutation.mutateAsync({
+        session_id: sessionId,
+        package_slug: pkg.slug,
+      });
+      setLastStripeStatus({
+        status: result.status === 'credited' ? 'credited' : 'duplicate',
+        session_id: sessionId,
+        balance: result.balance ?? null,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console -- intentional dev signal
+      console.warn('[storyteller/web] Stripe local confirm failed', err);
     }
   };
 
@@ -340,6 +400,113 @@ export default function WalletPage(): ReactElement {
           </li>
         ))}
       </ul>
+
+      <h2
+        id="stripe-topup"
+        style={{
+          fontFamily: 'var(--font-serif)',
+          fontSize: 'var(--text-xl)',
+          marginTop: 'var(--space-6)',
+          marginBottom: 'var(--space-3)',
+        }}
+      >
+        Stripe checkout
+      </h2>
+      {checkoutMutation.error && (
+        <p
+          role="alert"
+          data-testid="wallet-stripe-error"
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            border: '1px solid var(--color-danger)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--color-danger)',
+            fontSize: 'var(--text-sm)',
+            marginBottom: 'var(--space-3)',
+          }}
+        >
+          Stripe checkout failed: {checkoutMutation.error.message}
+        </p>
+      )}
+
+      <ul
+        aria-labelledby="stripe-topup"
+        data-testid="wallet-stripe-tile"
+        style={{
+          display: 'grid',
+          gap: 'var(--space-3)',
+          listStyle: 'none',
+          padding: 0,
+          margin: 0,
+          marginBottom: 'var(--space-6)',
+        }}
+      >
+        {packages.map((pkg) => (
+          <li
+            key={`stripe-${pkg.slug}`}
+            data-testid="wallet-stripe-package"
+            data-package-slug={pkg.slug}
+            style={{
+              padding: 'var(--space-4)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--color-surface)',
+              display: 'grid',
+              gridTemplateColumns: '1fr auto',
+              gap: 'var(--space-4)',
+              alignItems: 'center',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+              <strong style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)' }}>
+                {pkg.name}
+              </strong>
+              <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
+                {pkg.credits} credits · {priceLabel(pkg)}
+              </span>
+              <Pill intent="info" title="Stripe-checkout top-up">
+                Stripe Checkout
+              </Pill>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <Button
+                intent="primary"
+                disabled={checkoutMutation.isPending}
+                onClick={() => void handleStripeTopUp(pkg)}
+                data-testid={`wallet-stripe-buy-${pkg.slug}`}
+                aria-label={`Pay with Stripe for ${pkg.name}`}
+              >
+                {checkoutMutation.isPending && checkoutMutation.variables?.package_slug === pkg.slug
+                  ? 'Opening…'
+                  : 'Pay with Stripe'}
+              </Button>
+              <Button
+                intent="secondary"
+                disabled={localConfirmMutation.isPending}
+                onClick={() => void handleLocalStripeConfirm('demo-session-' + pkg.slug, pkg)}
+                data-testid={`wallet-stripe-confirm-${pkg.slug}`}
+                aria-label={`Re-confirm local Stripe session for ${pkg.name}`}
+              >
+                Re-confirm
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {lastStripeStatus && (
+        <p
+          data-testid="wallet-stripe-result"
+          style={{
+            color: 'var(--color-foreground-muted)',
+            fontSize: 'var(--text-sm)',
+            marginBottom: 'var(--space-3)',
+          }}
+        >
+          Last Stripe confirm: status={lastStripeStatus.status}, session={lastStripeStatus.session_id},
+          balance={lastStripeStatus.balance ?? 'unchanged'}.
+        </p>
+      )}
     </div>
   );
 }

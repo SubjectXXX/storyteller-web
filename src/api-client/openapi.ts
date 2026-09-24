@@ -183,6 +183,67 @@ export interface CreditPackageResource {
 export type CreditPackagesResponse = ReadonlyArray<CreditPackageResource>;
 
 /**
+ * Stage 8-T02 — Stripe (Cashier-style) billing gateway.
+ *
+ *   `POST /api/billing/checkout` returns the redirect URL the SPA
+ *   navigates the browser to. When `mode === 'local'` (the default
+ *   in dev) the URL points at our own `/api/billing/local-checkout/...`
+ *   surface; in production it points at `https://checkout.stripe.com/...`.
+ *
+ *   `POST /api/billing/local-checkout/{sessionId}/confirm` is the
+ *   programmatic counterpart: it fires the same idempotent ledger
+ *   credit the webhook handler would emit. The SPA calls it from
+ *   the local-checkout page once the user presses Confirm.
+ *
+ *   `GET /api/billing/local-checkout/{sessionId}` returns either
+ *   metadata (Accept: JSON) or an HTML page (Accept: text/html).
+ *
+ *   `POST /api/billing/webhook` is the Stripe-signed webhook entry;
+ *   the SPA does NOT call this — only the api itself and Stripe do.
+ *   It is included here so fixtures + admin tools can replay events.
+ */
+export interface BillingCheckoutRequest {
+  readonly package_slug: string;
+}
+export interface BillingCheckoutResponse {
+  readonly checkout_url: string;
+  readonly session_id: string;
+  readonly mode: 'local' | 'real';
+  readonly package_slug: string;
+  readonly credits: number;
+  readonly price_cents: number;
+  readonly currency: string;
+}
+export interface BillingLocalConfirmRequest {
+  readonly session_id: string;
+  readonly package_slug: string;
+  readonly credits?: number;
+  readonly price_cents?: number;
+  readonly currency?: string;
+}
+export interface BillingOutcomeResponse {
+  readonly event_id?: string;
+  readonly type?: string;
+  readonly status: 'credited' | 'duplicate' | 'ignored' | 'user_missing' | 'package_missing' | 'parse_failed' | 'zero_credits';
+  readonly credited: boolean;
+  readonly transaction_id?: number | null;
+  readonly transaction_uuid?: string | null;
+  readonly balance?: number | null;
+}
+export interface BillingLocalCheckoutPageResponse {
+  readonly session_id: string;
+  readonly mode: 'local' | 'real';
+  readonly html_url: string;
+  readonly confirm_url: string;
+  readonly cancel_url: string;
+}
+export interface BillingWebhookEventRequest {
+  readonly id: string;
+  readonly type: string;
+  readonly [key: string]: unknown;
+}
+
+/**
  * Stage 8-T02 — wallet Test-LLM probe. POSTs a fixed prompt to
  * `POST /api/me/ai/test`, which charges credits via the S8-T01
  * TransactionService and returns the LLM response + balance delta.
@@ -543,6 +604,20 @@ export interface ApiClient {
     body: AiTestRequest,
     options?: RequestOptions,
   ) => Promise<AiTestResponse>;
+
+  // Billing (Stripe gateway — S8-T02)
+  readonly createBillingCheckout: (
+    body: BillingCheckoutRequest,
+    options?: RequestOptions,
+  ) => Promise<BillingCheckoutResponse>;
+  readonly confirmBillingLocalCheckout: (
+    body: BillingLocalConfirmRequest,
+    options?: RequestOptions,
+  ) => Promise<BillingOutcomeResponse>;
+  readonly getLocalCheckoutPage: (
+    sessionId: string,
+    options?: RequestOptions,
+  ) => Promise<BillingLocalCheckoutPageResponse>;
 
   // Referrals
   readonly getReferral: (options?: RequestOptions) => Promise<ReferralResponse>;
@@ -1539,6 +1614,30 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
       fetcher('/credit-packages', { ...options, method: 'GET' }) as Promise<CreditPackagesResponse>,
     testAi: (body, options) =>
       fetcher('/me/ai/test', { ...options, method: 'POST', body }) as Promise<AiTestResponse>,
+
+    // Billing (Stripe gateway — S8-T02)
+    createBillingCheckout: (body, options) =>
+      fetcher('/billing/checkout', {
+        ...options,
+        method: 'POST',
+        body,
+      }) as Promise<BillingCheckoutResponse>,
+    confirmBillingLocalCheckout: (body, options) =>
+      fetcher(`/billing/local-checkout/${encodeURIComponent(body.session_id)}/confirm`, {
+        ...options,
+        method: 'POST',
+        body: {
+          package_slug: body.package_slug,
+          credits: body.credits,
+          price_cents: body.price_cents,
+          currency: body.currency,
+        },
+      }) as Promise<BillingOutcomeResponse>,
+    getLocalCheckoutPage: (sessionId, options) =>
+      fetcher(`/billing/local-checkout/${encodeURIComponent(sessionId)}`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<BillingLocalCheckoutPageResponse>,
 
     // Referrals
     getReferral: (options) =>
