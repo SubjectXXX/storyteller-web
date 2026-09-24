@@ -156,6 +156,17 @@ export default function UserSettingsPage(): ReactElement {
   const dirty = draft !== null;
   const saving = updatePlayerSettings.isPending;
 
+  // Apply the current theme to <html data-theme="..."> so the document
+  // chrome (background, scrollbars, focus rings) follows the player's
+  // choice in real time. The CSS variables under :root / html[data-theme]
+  // in `styles/global.css` consume the attribute. We re-run on every
+  // `data.theme` change (including the draft) so the toggle feels live
+  // before the player hits Save.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.setAttribute('data-theme', data.theme);
+  }, [data.theme]);
+
   const groupsByDomain = useMemo(() => {
     const map: Partial<Record<SettingDomain, PlayerSettingsGroupDefinition[]>> = {};
     for (const g of PLAYER_SETTINGS_GROUPS) {
