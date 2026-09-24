@@ -535,15 +535,12 @@ function buildTypographyPreviewStyle(
   theme: string | number | boolean,
   verbosity: string | number | boolean,
 ): CSSProperties {
-  // Resolve theme: dark/light flip a couple of high-contrast tokens. The
-  // actual palette comes from the design-system; we only override the
-  // variables the preview surface cares about.
-  const palette =
-    theme === 'dark'
-      ? { background: '#11151c', foreground: '#f1ecdf', accent: '#f0c050' }
-      : theme === 'light'
-        ? { background: '#fbf7ee', foreground: '#1c1b18', accent: '#5a3b14' }
-        : { background: 'var(--color-surface)', foreground: 'var(--color-foreground)', accent: 'var(--color-primary)' };
+  // The preview surface reflects the design tokens so the live region
+  // matches the actual light/dark palette. `<html data-theme>` is set by
+  // the page on every resolved-theme change, so the variables flip with
+  // the theme selector (S4-T06 cosmetic fix).
+  void theme;
+  const palette = { background: 'var(--color-bg)', foreground: 'var(--color-fg)', accent: 'var(--color-primary)' };
 
   // Verbosity: terse = 0.92x line-height, balanced = 1.4 (default),
   // rich = 1.6 with more letter-spacing.
