@@ -14,7 +14,6 @@ export function PageHeader({ eyebrow, title, description, actions }: PageHeaderP
     gap: 'var(--space-3)',
     marginBottom: 'var(--space-6)',
     paddingBottom: 'var(--space-4)',
-    borderBottom: '1px solid var(--color-border)',
   };
   const row: CSSProperties = {
     display: 'flex',
