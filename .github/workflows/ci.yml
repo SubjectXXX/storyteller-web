@@ -1,0 +1,253 @@
+# CI orchestrator for storyteller-web.
+#
+# Mirrors the api/.github/workflows/ci.yml orchestrator pattern: every
+# gate runs in parallel from a single place so PRs get a single green
+# check, and a summary job aggregates the results. The web stack does
+# not use PHP, so the per-gate reusable workflows (lint.yml, static.yml,
+# unit.yml, contract.yml, build.yml, security.yml) from the api repo
+# do not apply — instead we run the four TypeScript/Vite gates that
+# make sense for a Vite SPA:
+#
+#   lint       - oxlint against src/**/*.ts(x)
+#   typecheck  - tsc -b --noEmit (project references)
+#   test       - vitest run (unit tests)
+#   build      - tsc -b && vite build (production dist)
+#
+# Each gate installs the design-system from the storyteller-platform
+# monorepo before pnpm install — the @storyteller/design-system
+# `file:` dependency in application/web/package.json points at
+# ../../packages/design-system, which only exists in the per-app
+# checkout once we provision it from the platform repo.
+#
+# Local agents run the same gates via `scripts/ci/*.sh` (or by running
+# pnpm scripts directly inside the monorepo, where the design-system
+# path already resolves).
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - development
+      - "task/**"
+      - "chore/**"
+  pull_request:
+    branches:
+      - main
+      - development
+  workflow_dispatch:
+
+# Cancel in-progress runs on the same ref so we don't burn runners
+# on a stale push that has since been superseded by a force-push.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lint:
+    name: lint (oxlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout storyteller-web
+        uses: actions/checkout@v4
+
+      - name: Provision @storyteller/design-system
+        uses: actions/checkout@v4
+        with:
+          repository: SubjectXXX/storyteller-platform
+          path: _platform
+          # Only need the design-system package; sparse-checkout the
+          # whole repo is cheap enough at this size and keeps the
+          # action surface area smaller.
+          sparse-checkout: packages/design-system
+
+      - name: Place design-system at the expected relative path
+        run: |
+          mkdir -p packages
+          rm -rf packages/design-system
+          cp -R _platform/packages/design-system packages/design-system
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: application/web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: application/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Run oxlint
+        working-directory: application/web
+        run: pnpm run lint
+
+  typecheck:
+    name: typecheck (tsc)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout storyteller-web
+        uses: actions/checkout@v4
+
+      - name: Provision @storyteller/design-system
+        uses: actions/checkout@v4
+        with:
+          repository: SubjectXXX/storyteller-platform
+          path: _platform
+          sparse-checkout: packages/design-system
+
+      - name: Place design-system at the expected relative path
+        run: |
+          mkdir -p packages
+          rm -rf packages/design-system
+          cp -R _platform/packages/design-system packages/design-system
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: application/web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: application/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tsc --noEmit
+        working-directory: application/web
+        run: pnpm run typecheck
+
+  test:
+    name: test (vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout storyteller-web
+        uses: actions/checkout@v4
+
+      - name: Provision @storyteller/design-system
+        uses: actions/checkout@v4
+        with:
+          repository: SubjectXXX/storyteller-platform
+          path: _platform
+          sparse-checkout: packages/design-system
+
+      - name: Place design-system at the expected relative path
+        run: |
+          mkdir -p packages
+          rm -rf packages/design-system
+          cp -R _platform/packages/design-system packages/design-system
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: application/web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: application/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Run vitest unit suite
+        working-directory: application/web
+        run: pnpm run test
+
+  build:
+    name: build (vite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout storyteller-web
+        uses: actions/checkout@v4
+
+      - name: Provision @storyteller/design-system
+        uses: actions/checkout@v4
+        with:
+          repository: SubjectXXX/storyteller-platform
+          path: _platform
+          sparse-checkout: packages/design-system
+
+      - name: Place design-system at the expected relative path
+        run: |
+          mkdir -p packages
+          rm -rf packages/design-system
+          cp -R _platform/packages/design-system packages/design-system
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: application/web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: application/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Run vite build
+        working-directory: application/web
+        run: pnpm run build
+
+      - name: Upload build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: application/web/dist
+          if-no-files-found: ignore
+          retention-days: 7
+
+  summary:
+    name: gate summary
+    needs: [lint, typecheck, test, build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report gate status
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          echo "## CI gate summary" >> "$GITHUB_STEP_SUMMARY"
+          any_failed=false
+          for gate in lint typecheck test build; do
+            status=$(echo "$NEEDS_JSON" | jq -r ".\"$gate\".result // \"skipped\"")
+            echo "- **${gate}**: ${status}" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$status" = "failure" ] || [ "$status" = "cancelled" ]; then
+              any_failed=true
+            fi
+          done
+          if [ "$any_failed" = "true" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "❌ One or more gates failed — see the corresponding job log." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "✅ All gates passed." >> "$GITHUB_STEP_SUMMARY"
