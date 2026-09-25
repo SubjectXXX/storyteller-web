@@ -225,6 +225,53 @@ export default function WalletPage(): ReactElement {
                 {wallet.currency}
               </span>
             </p>
+            {/* R24 DI-2: surface the reserved-aware `available` balance so
+                the player can see what is actually spendable. The headline
+                number includes pending holds (e.g. an in-flight turn that
+                has reserved credits), so the two values can diverge until
+                the reservation settles or releases. The tooltip spells out
+                the difference so it never reads as a bug. */}
+            <p
+              data-testid="wallet-available"
+              title="Available = balance − pending holds"
+              style={{
+                color: 'var(--color-foreground-muted)',
+                fontSize: 'var(--text-sm)',
+                margin: 0,
+                display: 'flex',
+                gap: 'var(--space-2)',
+                alignItems: 'baseline',
+              }}
+            >
+              <span
+                style={{
+                  textTransform: 'uppercase',
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--color-foreground-subtle)',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                Available now
+              </span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-serif)',
+                  fontWeight: 'var(--weight-medium)',
+                  color: 'var(--color-foreground)',
+                }}
+              >
+                {typeof wallet.available === 'number' ? wallet.available : wallet.balance}{' '}
+                <span
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--color-foreground-muted)',
+                    marginLeft: 'var(--space-1)',
+                  }}
+                >
+                  {wallet.currency}
+                </span>
+              </span>
+            </p>
             <span
               data-testid="wallet-updated"
               style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}
