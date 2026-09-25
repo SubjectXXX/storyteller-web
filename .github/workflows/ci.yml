@@ -13,11 +13,18 @@
 #   test       - vitest run (unit tests)
 #   build      - tsc -b && vite build (production dist)
 #
-# Each gate installs the design-system from the storyteller-platform
-# monorepo before pnpm install — the @storyteller/design-system
-# `file:` dependency in application/web/package.json points at
-# ../../packages/design-system, which only exists in the per-app
-# checkout once we provision it from the platform repo.
+# The web repo carries a vendored copy of @storyteller/design-system at
+# packages/design-system/ (sourced from the storyteller-platform
+# monorepo). The application/web/package.json "file:" dependency
+# resolves to this vendored copy, which keeps the per-app repo self-
+# contained for CI. A future cleanup should publish the design-system
+# to a private npm registry and point both web + admin at it.
+#
+# pnpm install (without --frozen-lockfile) is used because the web
+# per-app repo does not commit a lockfile — the lockfile was previously
+# generated locally on the monorepo checkout where the design-system
+# path resolved naturally. Once a lockfile is committed (follow-up),
+# tighten this to --frozen-lockfile.
 #
 # Local agents run the same gates via `scripts/ci/*.sh` (or by running
 # pnpm scripts directly inside the monorepo, where the design-system
@@ -56,22 +63,6 @@ jobs:
       - name: Checkout storyteller-web
         uses: actions/checkout@v4
 
-      - name: Provision @storyteller/design-system
-        uses: actions/checkout@v4
-        with:
-          repository: SubjectXXX/storyteller-platform
-          path: _platform
-          # Only need the design-system package; sparse-checkout the
-          # whole repo is cheap enough at this size and keeps the
-          # action surface area smaller.
-          sparse-checkout: packages/design-system
-
-      - name: Place design-system at the expected relative path
-        run: |
-          mkdir -p packages
-          rm -rf packages/design-system
-          cp -R _platform/packages/design-system packages/design-system
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -82,11 +73,11 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: application/web/pnpm-lock.yaml
+          cache-dependency-path: application/web/package.json
 
       - name: Install dependencies
         working-directory: application/web
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Run oxlint
         working-directory: application/web
@@ -100,19 +91,6 @@ jobs:
       - name: Checkout storyteller-web
         uses: actions/checkout@v4
 
-      - name: Provision @storyteller/design-system
-        uses: actions/checkout@v4
-        with:
-          repository: SubjectXXX/storyteller-platform
-          path: _platform
-          sparse-checkout: packages/design-system
-
-      - name: Place design-system at the expected relative path
-        run: |
-          mkdir -p packages
-          rm -rf packages/design-system
-          cp -R _platform/packages/design-system packages/design-system
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -123,11 +101,11 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: application/web/pnpm-lock.yaml
+          cache-dependency-path: application/web/package.json
 
       - name: Install dependencies
         working-directory: application/web
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Run tsc --noEmit
         working-directory: application/web
@@ -141,19 +119,6 @@ jobs:
       - name: Checkout storyteller-web
         uses: actions/checkout@v4
 
-      - name: Provision @storyteller/design-system
-        uses: actions/checkout@v4
-        with:
-          repository: SubjectXXX/storyteller-platform
-          path: _platform
-          sparse-checkout: packages/design-system
-
-      - name: Place design-system at the expected relative path
-        run: |
-          mkdir -p packages
-          rm -rf packages/design-system
-          cp -R _platform/packages/design-system packages/design-system
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -164,11 +129,11 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: application/web/pnpm-lock.yaml
+          cache-dependency-path: application/web/package.json
 
       - name: Install dependencies
         working-directory: application/web
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Run vitest unit suite
         working-directory: application/web
@@ -182,19 +147,6 @@ jobs:
       - name: Checkout storyteller-web
         uses: actions/checkout@v4
 
-      - name: Provision @storyteller/design-system
-        uses: actions/checkout@v4
-        with:
-          repository: SubjectXXX/storyteller-platform
-          path: _platform
-          sparse-checkout: packages/design-system
-
-      - name: Place design-system at the expected relative path
-        run: |
-          mkdir -p packages
-          rm -rf packages/design-system
-          cp -R _platform/packages/design-system packages/design-system
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -205,11 +157,11 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: application/web/pnpm-lock.yaml
+          cache-dependency-path: application/web/package.json
 
       - name: Install dependencies
         working-directory: application/web
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Run vite build
         working-directory: application/web
