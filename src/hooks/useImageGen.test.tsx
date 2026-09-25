@@ -49,14 +49,17 @@ describe('useImageJob', () => {
       throw new ApiError(404, { message: 'not found', code: 'not_found' });
     };
     const { result } = renderHook(
-      () => useImageJob(7, 1, DEFAULT_IMAGE_PROMPT),
+      () => useImageJob(7, 1, 99, DEFAULT_IMAGE_PROMPT),
       { wrapper: makeWrapper(fetcher) },
     );
+    // The hook no longer auto-fires on mount; the player must press
+    // Regenerate. Press it once and confirm the create call lands.
+    act(() => {
+      result.current.regenerate();
+    });
     await waitFor(() => expect(result.current.status).toBe('completed'));
     expect(result.current.asset?.url).toBe(IMAGE_ASSET_FIXTURE.url);
     expect(result.current.error).toBeNull();
-    // The create call is followed by at least one GET against the job
-    // endpoint — the poll fires immediately after the create resolves.
     expect(fetchLog.some((entry) => entry.method === 'POST')).toBe(true);
     expect(fetchLog.some((entry) => entry.method === 'GET' && entry.path.startsWith('/image-jobs/'))).toBe(true);
   });
@@ -79,8 +82,11 @@ describe('useImageJob', () => {
       }
       throw new ApiError(404, { message: 'not found', code: 'not_found' });
     };
-    const { result } = renderHook(() => useImageJob(7, 1, DEFAULT_IMAGE_PROMPT), {
+    const { result } = renderHook(() => useImageJob(7, 1, 99, DEFAULT_IMAGE_PROMPT), {
       wrapper: makeWrapper(fetcher),
+    });
+    act(() => {
+      result.current.regenerate();
     });
     await waitFor(() => expect(result.current.status).toBe('failed'));
     expect(result.current.asset).toBeNull();
@@ -92,12 +98,34 @@ describe('useImageJob', () => {
       throw new Error('should not be called');
     };
     const { result } = renderHook(
-      () => useImageJob(undefined, 1, DEFAULT_IMAGE_PROMPT),
+      () => useImageJob(undefined, 1, 99, DEFAULT_IMAGE_PROMPT),
       { wrapper: makeWrapper(fetcher) },
     );
     expect(result.current.jobId).toBeNull();
     expect(result.current.status).toBe('idle');
     expect(result.current.isLoading).toBe(false);
+  });
+
+  // R24 DI-1 follow-on: a fresh adventure load must not fire the
+  // image-job create POST before the player clicks Regenerate. This
+  // avoids a 404 noise on the Network tab when the active turn id
+  // falls back to TURN_FIXTURE.id (which is not a real turn).
+  it('does not fire create until the player presses Regenerate', () => {
+    let createCount = 0;
+    const fetcher: Fetcher = async (path, options = {}) => {
+      const method = options.method ?? 'GET';
+      if (method === 'POST' && path.startsWith('/adventures/')) {
+        createCount += 1;
+      }
+      return undefined;
+    };
+    const { result } = renderHook(
+      () => useImageJob(7, 1, 99, DEFAULT_IMAGE_PROMPT),
+      { wrapper: makeWrapper(fetcher) },
+    );
+    expect(createCount).toBe(0);
+    expect(result.current.jobId).toBeNull();
+    expect(result.current.status).toBe('idle');
   });
 
   it('regenerate issues a fresh create call with the new prompt', async () => {
@@ -114,14 +142,17 @@ describe('useImageJob', () => {
       throw new ApiError(404, { message: 'not found', code: 'not_found' });
     };
     const { result } = renderHook(
-      () => useImageJob(7, 1, DEFAULT_IMAGE_PROMPT),
+      () => useImageJob(7, 1, 99, DEFAULT_IMAGE_PROMPT),
       { wrapper: makeWrapper(fetcher) },
     );
-    await waitFor(() => expect(result.current.status).toBe('completed'));
+    act(() => {
+      result.current.regenerate('A snowy forest at dawn');
+    });
+    await waitFor(() => expect(createCount).toBeGreaterThan(0));
     const initialCreateCount = createCount;
     act(() => {
-        result.current.regenerate('A snowy forest at dawn');
-      });
+      result.current.regenerate('A moonlit alley');
+    });
     await waitFor(() => expect(createCount).toBeGreaterThan(initialCreateCount));
     expect(createCount).toBeGreaterThan(initialCreateCount);
   });
