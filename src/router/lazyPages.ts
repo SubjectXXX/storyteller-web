@@ -3,6 +3,7 @@ import { lazy } from 'react';
 export const HomePage = lazy(() => import('@/pages/HomePage'));
 export const ScenarioLibraryPage = lazy(() => import('@/pages/ScenarioLibraryPage'));
 export const ScenarioDetailPage = lazy(() => import('@/pages/ScenarioDetailPage'));
+export const AdventuresListPage = lazy(() => import('@/pages/AdventuresListPage'));
 export const AdventurePage = lazy(() => import('@/pages/AdventurePage'));
 export const PlaySurfacePlaceholder = lazy(() => import('@/pages/PlaySurfacePlaceholder'));
 export const LoginPage = lazy(() => import('@/pages/LoginPage'));

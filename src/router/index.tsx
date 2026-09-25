@@ -6,6 +6,7 @@ import { LoadingPanel } from '@/components/LoadingPanel';
 import { AuthGate } from '@/components/AuthGate';
 import {
   AdventurePage,
+  AdventuresListPage,
   HomePage,
   LoginPage,
   NotFoundPage,
@@ -41,6 +42,7 @@ export function router(): ReactElement {
       <Route path="/" element={wrap(<HomePage />)} />
       <Route path="/scenarios" element={wrap(<ScenarioLibraryPage />)} />
       <Route path="/scenarios/:slug" element={wrap(<ScenarioDetailPage />)} />
+      <Route path="/adventures" element={wrap(<AdventuresListPage />, true)} />
       <Route path="/adventures/:id" element={wrap(<AdventurePage />, true)} />
       <Route path="/play/:adventureId?" element={wrap(<PlaySurfacePlaceholder />)} />
       <Route path="/login" element={wrap(<LoginPage />)} />
