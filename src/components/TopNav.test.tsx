@@ -69,3 +69,41 @@ describe('TopNav streaming indicator', () => {
     expect(screen.getByTestId('streaming-pill').textContent).toMatch(/Streaming/);
   });
 });
+
+describe('TopNav admin link', () => {
+  it('hides the Admin link for non-admin users', async () => {
+    // AUTH_FIXTURE.user has is_admin=false; the auth/me response should
+    // reflect the same so the resolved context exposes the regular role.
+    const fetcher: Fetcher = async (path) => {
+      if (path === '/auth/me') return { ...AUTH_FIXTURE.user, is_admin: false };
+      if (path === '/adventures') return [ADVENTURE_FIXTURE];
+      return undefined;
+    };
+    const wrapper = makeWrapper('/', fetcher);
+    render(<div />, { wrapper });
+    await waitFor(() => {
+      // Wait for the auth context to resolve so the Admin-link branch is
+      // evaluated against the resolved user, not a transient null.
+      expect(screen.queryByTestId('admin-link')).toBeNull();
+    });
+  });
+
+  it('shows the Admin link pointing at /admin/ when the signed-in user is an admin', async () => {
+    const fetcher: Fetcher = async (path) => {
+      if (path === '/auth/me') return { ...AUTH_FIXTURE.user, is_admin: true };
+      if (path === '/adventures') return [ADVENTURE_FIXTURE];
+      return undefined;
+    };
+    const wrapper = makeWrapper('/', fetcher);
+    render(<div />, { wrapper });
+    await waitFor(() => {
+      const link = screen.getByTestId('admin-link');
+      expect(link).toBeTruthy();
+      // Plain anchor — crossing the SPA boundary into the admin app,
+      // so we deliberately avoid RouterNavLink (which would route inside
+      // basename="/web").
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toBe('/admin/');
+    });
+  });
+});

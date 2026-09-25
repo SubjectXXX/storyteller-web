@@ -76,6 +76,18 @@ export function TopNav(): ReactElement {
         <Item to="/wallet">Wallet</Item>
         <Item to="/referrals">Referrals</Item>
         <Item to="/story-seed-preview">Story seed</Item>
+        {user?.is_admin === true && (
+          <li>
+            <a
+              href="/admin/"
+              style={{ ...navLink, color: 'var(--color-primary)' }}
+              data-testid="admin-link"
+              aria-label="Open the Storyteller administration console"
+            >
+              Admin
+            </a>
+          </li>
+        )}
         {activeAdventure && (
           <Item
             to={`/adventures/${activeAdventure.id}`}
