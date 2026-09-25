@@ -24,7 +24,12 @@
 # per-app repo does not commit a lockfile — the lockfile was previously
 # generated locally on the monorepo checkout where the design-system
 # path resolved naturally. Once a lockfile is committed (follow-up),
-# tighten this to --frozen-lockfile.
+# tighten this to --frozen-lockfile and re-enable pnpm cache.
+#
+# actions/setup-node cache is disabled because the web per-app repo has
+# no committed lockfile, and setup-node@v4 fails its cache step when
+# the cache-dependency-path points at a missing lockfile. Cache can be
+# re-enabled once a lockfile is committed.
 #
 # Local agents run the same gates via `scripts/ci/*.sh` (or by running
 # pnpm scripts directly inside the monorepo, where the design-system
@@ -72,8 +77,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: application/web/package.json
 
       - name: Install dependencies
         working-directory: application/web
@@ -100,8 +103,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: application/web/package.json
 
       - name: Install dependencies
         working-directory: application/web
@@ -128,8 +129,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: application/web/package.json
 
       - name: Install dependencies
         working-directory: application/web
@@ -156,8 +155,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: application/web/package.json
 
       - name: Install dependencies
         working-directory: application/web
