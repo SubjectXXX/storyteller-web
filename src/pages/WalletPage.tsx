@@ -225,12 +225,118 @@ export default function WalletPage(): ReactElement {
                 {wallet.currency}
               </span>
             </p>
-            <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}>
-              Updated {new Date(wallet.updated_at).toLocaleString()}
+            <span
+              data-testid="wallet-updated"
+              style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-sm)' }}
+            >
+              Updated{' '}
+              {wallet.updated_at ? new Date(wallet.updated_at).toLocaleString() : 'Never'}
             </span>
           </article>
         </section>
       )}
+
+      <h2
+        id="recent-activity"
+        style={{
+          fontFamily: 'var(--font-serif)',
+          fontSize: 'var(--text-xl)',
+          marginBottom: 'var(--space-3)',
+        }}
+      >
+        Recent activity
+      </h2>
+      <section
+        aria-labelledby="recent-activity"
+        data-testid="wallet-recent-activity"
+        style={{
+          padding: 'var(--space-4)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--color-surface)',
+          marginBottom: 'var(--space-6)',
+        }}
+      >
+        {wallet.recent_transactions && wallet.recent_transactions.length > 0 ? (
+          <ul
+            style={{
+              listStyle: 'none',
+              padding: 0,
+              margin: 0,
+              display: 'grid',
+              gap: 'var(--space-2)',
+            }}
+          >
+            {wallet.recent_transactions.slice(0, 5).map((entry) => {
+              const credit = Number(entry.total_credit ?? 0);
+              const debit = Number(entry.total_debit ?? 0);
+              // A credit-only row is a top-up; a debit-only row is a spend
+              // (a balanced two-leg row that nets positive = refund).
+              const isCredit = credit > 0 && debit === 0;
+              const isDebit = debit > 0 && credit === 0;
+              const signedDelta = credit - debit;
+              const formattedAmount =
+                isCredit
+                  ? `+${signedDelta} ${wallet.currency}`
+                  : isDebit
+                    ? `-${debit} ${wallet.currency}`
+                    : `${signedDelta > 0 ? '+' : ''}${signedDelta} ${wallet.currency}`;
+              const amountColor = signedDelta >= 0
+                ? 'var(--color-success, #1f8a3a)'
+                : 'var(--color-danger, #b3261e)';
+              const description = entry.reference_type
+                ? `${entry.kind.replace(/_/g, ' ')}${entry.reference_id !== null ? ` #${entry.reference_id}` : ''}`
+                : entry.kind.replace(/_/g, ' ');
+              return (
+                <li
+                  key={entry.uuid}
+                  data-testid="wallet-recent-activity-row"
+                  data-transaction-uuid={entry.uuid}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: 'var(--space-2)',
+                    alignItems: 'center',
+                    padding: 'var(--space-2) 0',
+                    borderBottom: '1px dashed var(--color-border)',
+                  }}
+                >
+                  <span style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                    <span style={{ fontWeight: 'var(--weight-medium)', textTransform: 'capitalize' }}>
+                      {description}
+                    </span>
+                    <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-xs)' }}>
+                      {entry.posted_at
+                        ? new Date(entry.posted_at).toLocaleString()
+                        : 'Pending'}
+                    </span>
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: 'var(--font-serif)',
+                      fontSize: 'var(--text-md)',
+                      fontWeight: 'var(--weight-semibold)',
+                      color: amountColor,
+                    }}
+                  >
+                    {formattedAmount}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p
+            style={{
+              color: 'var(--color-foreground-muted)',
+              fontSize: 'var(--text-sm)',
+              margin: 0,
+            }}
+          >
+            No transactions yet. Top up below to get started.
+          </p>
+        )}
+      </section>
 
       <h2
         id="test-llm"

@@ -415,16 +415,52 @@ export const TURN_FIXTURE: TurnResource = {
   created_at: '2026-09-22T17:01:00Z',
 };
 
+export interface WalletRecentTransaction {
+  readonly uuid: string;
+  readonly kind: string;
+  readonly reference_type: string | null;
+  readonly reference_id: number | null;
+  readonly posted_at: string | null;
+  readonly total_credit: number;
+  readonly total_debit: number;
+  readonly balanced: boolean;
+}
+
 export interface WalletResource {
   readonly balance: number;
   readonly currency: string;
-  readonly updated_at: string;
+  readonly available?: number;
+  readonly updated_at: string | null;
+  readonly recent_transactions?: ReadonlyArray<WalletRecentTransaction>;
 }
 
 export const WALLET_RESOURCE_FIXTURE: WalletResource = {
   balance: 12,
   currency: 'credits',
+  available: 12,
   updated_at: '2026-09-22T17:00:00Z',
+  recent_transactions: [
+    {
+      uuid: '00000000-0000-0000-0000-000000000001',
+      kind: 'top_up',
+      reference_type: 'package',
+      reference_id: 1,
+      posted_at: '2026-09-22T17:00:00Z',
+      total_credit: 500,
+      total_debit: 0,
+      balanced: true,
+    },
+    {
+      uuid: '00000000-0000-0000-0000-000000000002',
+      kind: 'spend',
+      reference_type: 'turn',
+      reference_id: 42,
+      posted_at: '2026-09-22T17:05:00Z',
+      total_credit: 0,
+      total_debit: 1,
+      balanced: true,
+    },
+  ],
 };
 
 // ---------- Stage 8 — Credit packages (S8-T01) ----------------------------

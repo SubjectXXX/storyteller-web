@@ -12,6 +12,17 @@ export interface ButtonProps {
   readonly onClick?: () => void;
   readonly fullWidth?: boolean;
   readonly 'aria-label'?: string;
+  readonly 'aria-pressed'?: boolean;
+  readonly 'aria-busy'?: boolean;
+  readonly 'aria-controls'?: string;
+  readonly 'aria-describedby'?: string;
+  readonly 'aria-expanded'?: boolean;
+  readonly 'aria-haspopup'?: 'menu' | 'listbox' | 'tree' | 'grid' | 'dialog' | boolean;
+  readonly tabIndex?: number;
+  readonly autoFocus?: boolean;
+  readonly form?: string;
+  readonly name?: string;
+  readonly value?: string;
   readonly 'data-testid'?: string;
 }
 
@@ -76,14 +87,21 @@ export function Button({
     ...(fullWidth ? { width: '100%' } : {}),
     ...(disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {}),
   };
+  // R23b P0-2: the previous implementation only forwarded `aria-label`
+  // and `data-testid`; every other ARIA / form / focus prop was dropped,
+  // so e.g. `<Button aria-pressed={...}>` never reached the underlying
+  // <button>. Spread the rest props straight onto the element so all
+  // well-known attrs (aria-pressed, aria-busy, aria-controls,
+  // aria-describedby, aria-expanded, aria-haspopup, tabIndex, autoFocus,
+  // form, name, value) reach the DOM. Styling, the explicit `disabled`
+  // handling, and `className` (if added later) remain untouched.
   return (
     <button
+      {...rest}
       type={type}
       disabled={disabled}
       onClick={onClick}
       style={style}
-      aria-label={rest['aria-label']}
-      data-testid={rest['data-testid']}
     >
       {children}
     </button>

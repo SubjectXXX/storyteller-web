@@ -111,4 +111,32 @@ describe('AdventureSettingsDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /close/i }));
     await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
   });
+
+  // R23b P0-1: a partial server payload (loading state, optimistic
+  // update, or a 404 fallback) can omit the `groups` field. Iterating
+  // undefined used to throw `groups is not iterable` and unmount the
+  // page via the ErrorBoundary. The drawer must render without crashing
+  // when groups is missing.
+  it('renders without crashing when adventureSettings.groups is undefined or empty', () => {
+    const partial = {
+      ...ADVENTURE_SETTINGS_FIXTURE,
+      groups: undefined as unknown as typeof ADVENTURE_SETTINGS_FIXTURE.groups,
+    };
+    expect(() =>
+      render(
+        <AdventureSettingsDrawer
+          adventureId={partial.adventure_id}
+          branchId={partial.branch_id}
+          adventureSettings={partial}
+          userSettings={PLAYER_SETTINGS_FIXTURE}
+          isLoading={false}
+          error={null}
+          onSave={() => undefined}
+          onClose={() => undefined}
+          saving={false}
+        />,
+      ),
+    ).not.toThrow();
+    expect(screen.getByRole('dialog', { name: /adventure settings/i })).toBeInTheDocument();
+  });
 });
