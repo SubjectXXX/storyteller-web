@@ -2,12 +2,12 @@ import type { ReactElement } from 'react';
 import { cva, type VariantProps } from '@storyteller/design-system';
 
 const loadingPanel = cva(
-  'flex flex-col items-center justify-center gap-2 text-center',
+  'flex w-full flex-col items-center justify-center gap-2 text-center',
   {
     variants: {
       intent: {
         page: 'min-h-[40vh] p-8',
-        inline: 'p-4',
+        inline: 'min-h-[40vh] p-4',
       },
     },
     defaultVariants: { intent: 'page' },
@@ -22,6 +22,7 @@ export function LoadingPanel({ label = 'Loading', intent }: LoadingPanelProps): 
       <span
         aria-hidden
         style={{
+          display: 'inline-block',
           width: 32,
           height: 32,
           borderRadius: '50%',
