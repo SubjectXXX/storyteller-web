@@ -18,12 +18,21 @@ import {
 } from '@/api-client';
 import type { Fetcher, StreamEvent } from '@/api-client';
 import { AuthProvider } from '@/auth/AuthContext';
-import { ADVENTURE_FIXTURE, ADVENTURE_LIST_FIXTURE, TURN_FIXTURE } from '@/fixtures/data';
+import { ADVENTURE_FIXTURE, ADVENTURE_LIST_FIXTURE, AUTH_FIXTURE, TURN_FIXTURE } from '@/fixtures/data';
 
-function makeWrapper(fetcher: Fetcher) {
+function makeWrapper(fetcher: Fetcher, options: { withToken?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // R24 DI-4: `useAdventures` is now gated on a hydrated bearer token, so
+  // tests that exercise the list query must pre-populate localStorage.
+  // The `withToken: false` (default) form is reserved for the negative
+  // "does not fetch when signed out" assertion.
+  if (options.withToken) {
+    window.localStorage.setItem('storyteller.session.token', AUTH_FIXTURE.token);
+  } else {
+    window.localStorage.removeItem('storyteller.session.token');
+  }
   return ({ children }: { children: ReactNode }): ReactElement => (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
@@ -36,7 +45,9 @@ function makeWrapper(fetcher: Fetcher) {
 describe('useAdventures', () => {
   it('returns the adventure list on success', async () => {
     const fetcher: Fetcher = async () => ADVENTURE_LIST_FIXTURE;
-    const { result } = renderHook(() => useAdventures(), { wrapper: makeWrapper(fetcher) });
+    const { result } = renderHook(() => useAdventures(), {
+      wrapper: makeWrapper(fetcher, { withToken: true }),
+    });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.[0]?.id).toBe(ADVENTURE_FIXTURE.id);
     expect(result.current.data?.[0]?.status).toBe('active');
@@ -46,9 +57,24 @@ describe('useAdventures', () => {
     const fetcher: Fetcher = async () => {
       throw new ApiError(401, { message: 'Unauthenticated', code: 'unauthenticated' });
     };
-    const { result } = renderHook(() => useAdventures(), { wrapper: makeWrapper(fetcher) });
+    const { result } = renderHook(() => useAdventures(), {
+      wrapper: makeWrapper(fetcher, { withToken: true }),
+    });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect((result.current.error as ApiError).code).toBe('unauthenticated');
+  });
+
+  // R24 DI-4: TopNav mounts the list query on every route (including
+  // /web/login). The hook must stay silent when no bearer token is
+  // hydrated, otherwise we leak a 401 every time a signed-out visitor
+  // hits the login screen.
+  it('does not fetch the list when no token is hydrated', async () => {
+    const fetcher: Fetcher = vi.fn(async () => ADVENTURE_LIST_FIXTURE);
+    const { result } = renderHook(() => useAdventures(), { wrapper: makeWrapper(fetcher) });
+    await waitFor(() => expect(result.current.fetchStatus).toBe('idle'));
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.current.isFetching).toBe(false);
+    expect(result.current.data).toBeUndefined();
   });
 });
 

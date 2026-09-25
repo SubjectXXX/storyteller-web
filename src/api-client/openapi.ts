@@ -702,7 +702,7 @@ export interface ApiClient {
   // Stage 6 — Visual generation (S6-T01..S6-T02)
   readonly createImageJob: (
     adventureId: number,
-    branchId: number,
+    turnId: number,
     body: GenerateImageRequest,
     options?: RequestOptions,
   ) => Promise<ImageJobResponseShape>;
@@ -1763,8 +1763,8 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
       }) as Promise<PinnedMemoryListResponseShape>,
 
     // Stage 6 — Visual generation (S6-T01..S6-T02)
-    createImageJob: (adventureId, branchId, body, options) =>
-      fetcher(`/adventures/${adventureId}/branches/${branchId}/image`, {
+    createImageJob: (adventureId, turnId, body, options) =>
+      fetcher(`/adventures/${adventureId}/turns/${turnId}/image`, {
         ...options,
         method: 'POST',
         body,

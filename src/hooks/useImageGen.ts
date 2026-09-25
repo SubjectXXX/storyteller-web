@@ -4,7 +4,7 @@
  *
  * Wire contract (S6-T01, see `fixtureFetcher` for the SPA shell):
  *
- *   POST /api/adventures/{id}/branches/{branchId}/image
+ *   POST /api/adventures/{id}/turns/{turnId}/image
  *     body: { prompt: string, turn_id?: number, width?: number,
  *             height?: number }
  *     response: ImageJobResponse { job_id, adventure_id, branch_id,
@@ -76,6 +76,7 @@ export interface UseImageJobResult {
  * the panel mid-flight aborts the in-flight request without leaking.
  */
 export function useImageJob(
+  adventureId: number | undefined,
   branchId: number | undefined,
   turnId: number | undefined,
   initialPrompt: string,
@@ -92,15 +93,16 @@ export function useImageJob(
     queryKey: [
       ...imageKeys.job(undefined),
       'create',
+      adventureId,
       branchId,
       turnId,
       currentPrompt,
       regenerateNonce,
     ] as const,
     queryFn: ({ signal }) => {
-      if (branchId === undefined || turnId === undefined) {
+      if (adventureId === undefined || turnId === undefined) {
         throw new ApiError(400, {
-          message: 'branchId and turnId are required',
+          message: 'adventureId and turnId are required',
           code: 'missing_args',
         });
       }
@@ -111,18 +113,21 @@ export function useImageJob(
         });
       }
       return api.createImageJob(
-        // The fixture transport ignores the parent adventure id; the real
-        // API worker uses it to scope permissions.
-        branchId,
-        branchId,
+        adventureId,
+        turnId,
         { prompt: currentPrompt, turn_id: turnId },
         { signal },
       );
     },
     enabled:
-      typeof branchId === 'number' &&
+      typeof adventureId === 'number' &&
       typeof turnId === 'number' &&
-      regenerateNonce >= 0,
+      // R24 DI-1 follow-on: only auto-create a job once the player
+      // presses Regenerate. Before this guard, the panel fired a
+      // `POST /api/adventures/{id}/turns/{turnId}/image` on every
+      // mount, which 404'd when the adventure had no completed turn
+      // yet. The first create call now happens behind the button.
+      regenerateNonce > 0,
     // Treat the create response as a transient step; we surface status
     // through `pollQuery` so this stays in `idle` from the consumer's
     // perspective after the first resolve.

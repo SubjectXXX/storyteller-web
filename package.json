@@ -15,7 +15,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@storyteller/design-system": "file:../../packages/design-system",
+    "@storyteller/design-system": "file:./packages/design-system",
     "@tanstack/react-query": "^5.59.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.460.0",

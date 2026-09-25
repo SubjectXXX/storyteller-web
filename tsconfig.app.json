@@ -25,10 +25,10 @@
 
     "paths": {
       "@/*": ["./src/*"],
-      "@storyteller/design-system": ["../packages/design-system/src/index.ts"],
-      "@storyteller/design-system/tokens.css": ["../packages/design-system/src/tokens.css"],
-      "@storyteller/design-system/reset.css": ["../packages/design-system/src/reset.css"],
-      "@storyteller/design-system/cva": ["../packages/design-system/src/cva.ts"]
+      "@storyteller/design-system": ["./packages/design-system/src/index.ts"],
+      "@storyteller/design-system/tokens.css": ["./packages/design-system/src/tokens.css"],
+      "@storyteller/design-system/reset.css": ["./packages/design-system/src/reset.css"],
+      "@storyteller/design-system/cva": ["./packages/design-system/src/cva.ts"]
     }
   },
   "include": ["src"],

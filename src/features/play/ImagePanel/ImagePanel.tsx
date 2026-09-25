@@ -144,7 +144,7 @@ export function ImagePanel({
   title = 'Visuals',
   initialPrompt = DEFAULT_IMAGE_PROMPT,
 }: ImagePanelProps): ReactElement {
-  const job = useImageJob(branchId, turnId, initialPrompt);
+  const job = useImageJob(adventureId, branchId, turnId, initialPrompt);
   const carouselQuery = useImageCarousel(adventureId);
   const carouselAssets: ReadonlyArray<ImageAsset> = useMemo(
     () => carouselQuery.data?.assets ?? [],

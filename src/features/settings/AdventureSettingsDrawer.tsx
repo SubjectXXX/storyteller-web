@@ -126,10 +126,23 @@ export function AdventureSettingsDrawer({
 
   // Initialise the draft from the server payload. Use the existing group
   // state so users see the override they previously set.
+  //
+  // R23b P0-1: a partial server payload can omit `groups` (loading state,
+  // 404 fallback, optimistic update in flight). Iterating undefined throws
+  // `groups is not iterable` and unmounts the page via the ErrorBoundary.
+  // Treat missing groups as an empty array — the render path below already
+  // early-returns when `adventureSettings` is undefined, so the empty list
+  // will be a no-op render here.
   useMemo(() => {
     if (!adventureSettings) return;
+    const groups = adventureSettings.groups ?? [];
+    if (groups.length === 0) {
+      // Don't clobber the local draft with an empty server payload — the
+      // selector can fire before the real payload arrives.
+      return;
+    }
     const next: typeof draft = {};
-    for (const group of adventureSettings.groups) {
+    for (const group of groups) {
       const value: string | number | boolean =
         group.state === 'override' && group.value !== null
           ? (group.value as string | number | boolean)
@@ -213,7 +226,7 @@ export function AdventureSettingsDrawer({
         </p>
         <Card title="Effective settings" subtitle="What your player will see in this adventure">
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 'var(--space-2)' }}>
-            {adventureSettings.groups.map((group) => {
+            {(adventureSettings.groups ?? []).map((group) => {
               const def = findGroupDef(group.id);
               const entry = draft[group.id] ?? {
                 state: group.state,
