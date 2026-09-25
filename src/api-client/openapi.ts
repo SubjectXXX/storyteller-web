@@ -1,7 +1,6 @@
 /**
  * Storyteller player SPA → API contract.
  *
- * Stage S2-T01 ships the player-facing endpoints on the Laravel API at
  * `/api/...` (Caddy strips the prefix in production). This file declares the
  * contract the SPA EXPECTS to call, mirroring the shapes used by the S1
  * fixtures in `@/fixtures/data.ts`. The endpoints that do not yet exist are

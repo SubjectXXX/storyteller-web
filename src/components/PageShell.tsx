@@ -35,7 +35,7 @@ export function PageShell({ children }: PageShellProps): ReactElement {
           borderTop: '1px solid var(--color-border)',
         }}
       >
-        Storyteller · Lantern & Ink · Stage S1 fixture shell
+        Storyteller · Lantern & Ink
       </footer>
     </div>
   );

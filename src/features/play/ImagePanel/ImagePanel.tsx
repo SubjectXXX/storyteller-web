@@ -1,5 +1,5 @@
 /**
- * `<ImagePanel>` — Stage 6 visual generation surface for the active
+ * `<ImagePanel>` - visual generation surface for the active
  * adventure. Renders the latest image generated for the current turn
  * (or the carousel's first asset if no fresh job is in flight) plus
  * the full history via `<ImageCarousel>`.
@@ -125,7 +125,7 @@ function statusLabel(
 }
 
 /**
- * Tiny shimmer placeholder used while the Stage 6 job is in flight. We
+ * Tiny shimmer placeholder used while the image-generation job is in flight.
  * inline a `@keyframes` block so the panel does not need to ship a
  * global stylesheet for one animation.
  */
@@ -167,7 +167,7 @@ export function ImagePanel({
           <Pill intent="muted" title="Adventure id">
             #{adventureId}
           </Pill>
-          <Pill intent={statusIntent(job.status)} title={`Stage 6 job status: ${job.status}`}>
+          <Pill intent={statusIntent(job.status)} title={`Image job status: ${job.status}`}>
             {statusLabel(job.status)}
           </Pill>
         </span>
@@ -217,7 +217,7 @@ export function ImagePanel({
         ) : (
           <EmptyState
             title="No image yet"
-            description="Press Regenerate to render a fresh illustration for the current turn. The Stage 6 worker calls the visual model and surfaces the result here."
+            description="Press Regenerate to render a fresh illustration for the current turn. The visual worker calls the model and surfaces the result here."
           />
         )}
         <div style={actionsRowStyle}>

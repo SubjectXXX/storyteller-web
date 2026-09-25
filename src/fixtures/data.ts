@@ -1,11 +1,10 @@
 /**
  * Storyteller player fixture data.
  *
- * Stage S1 ships clickable, fixture-driven shells for every player
- * surface. The fixtures below are the single source of truth that
- * every page reads from. The shape mirrors the eventual API contracts
- * (see docs/api/ once S2 ships) so swapping fixtures for real data is
- * a one-line change.
+ * Offline-dev fixture set used by the player SPA while the real API
+ * contracts are finalised. The fixtures below are the single source of
+ * truth that every page falls back to. The shape mirrors the eventual
+ * API contracts so swapping fixtures for real data is a one-line change.
  *
  * Keep these fixtures deterministic: stable ids, stable dates, stable
  * order. Tests pin specific ids so a rename here requires a coordinated

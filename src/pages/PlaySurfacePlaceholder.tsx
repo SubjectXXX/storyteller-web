@@ -54,7 +54,7 @@ export default function PlaySurfacePlaceholder(): ReactElement {
       <PageHeader
         eyebrow={`Chapter ${turn.chapter} · ${turn.beat}`}
         title={scenarioLabel}
-        description="The full timeline, composer, and inventory land in S2. This is the Stage S1 fixture: choose a beat to advance the conversation and verify the keyboard / screen reader flow."
+        description="Offline fallback for the live play surface. While the api is unreachable, choose a beat to step through the conversation and verify the keyboard / screen reader flow."
         actions={
           <>
             <Link to="/scenarios">
@@ -178,7 +178,7 @@ export default function PlaySurfacePlaceholder(): ReactElement {
             <Pill intent="muted" title="Disabled until S2">
               Composer · S2
             </Pill>
-            <Button intent="primary" disabled aria-label="Disabled until Stage S2 ships">
+            <Button intent="primary" disabled aria-label="Disabled in this build">
               Send (S2)
             </Button>
           </div>
