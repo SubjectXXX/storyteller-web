@@ -18,7 +18,7 @@ import {
 
 export default function HomePage(): ReactElement {
   const { data, isLoading, error } = useScenarios();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const adventuresQuery = useAdventures();
   const aiStatusQuery = useAiStatus();
   const featured: ScenarioResource | undefined =
@@ -62,17 +62,19 @@ export default function HomePage(): ReactElement {
         description="Pick a scenario to read through its synopsis, or jump straight into play to walk through the surfaces we are polishing for S2."
         actions={
           <>
-            <Pill
-              intent={providerIntent}
-              title={
-                ai.reachable
-                  ? `Provider reachable at ${ai.base_url || 'a configured endpoint'}`
-                  : 'Provider not reachable; the API will use the offline fixture.'
-              }
-              data-testid="ai-provider-pill"
-            >
-              {providerLabel}
-            </Pill>
+            {user?.is_admin === true && (
+              <Pill
+                intent={providerIntent}
+                title={
+                  ai.reachable
+                    ? `Provider reachable at ${ai.base_url || 'a configured endpoint'}`
+                    : 'Provider not reachable; the API will use the offline fixture.'
+                }
+                data-testid="ai-provider-pill"
+              >
+                {providerLabel}
+              </Pill>
+            )}
             <Link to="/scenarios">
               <Button intent="primary">Browse scenarios</Button>
             </Link>

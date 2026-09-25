@@ -10,7 +10,7 @@ import {
 } from '@/api-client';
 import type { Fetcher } from '@/api-client';
 import { AuthProvider } from '@/auth/AuthContext';
-import { ADVENTURE_FIXTURE, ADVENTURE_LIST_FIXTURE } from '@/fixtures/data';
+import { ADVENTURE_FIXTURE, ADVENTURE_LIST_FIXTURE, AUTH_FIXTURE } from '@/fixtures/data';
 
 function renderWithProviders(fetcher: Fetcher = fixtureFetcher()): void {
   const queryClient = new QueryClient({
@@ -27,6 +27,22 @@ function renderWithProviders(fetcher: Fetcher = fixtureFetcher()): void {
       </AuthProvider>
     </QueryClientProvider>,
   );
+}
+
+/**
+ * Render HomePage with an authenticated admin user so admin-gated UI
+ * (the AI provider pill) is reachable from the tests that exercise it.
+ */
+function renderAsAdmin(fetcher: Fetcher = fixtureFetcher()): void {
+  // Seed a bearer token so AuthProvider resolves the session on mount
+  // and calls /auth/me via the provided fetcher.
+  window.localStorage.setItem('storyteller.session.token', AUTH_FIXTURE.token);
+  renderWithProviders(async (path, init) => {
+    if (path === '/auth/me') {
+      return { ...AUTH_FIXTURE.user, is_admin: true };
+    }
+    return fetcher(path, init);
+  });
 }
 
 describe('HomePage', () => {
@@ -89,7 +105,7 @@ describe('HomePage', () => {
       }
       return undefined;
     };
-    renderWithProviders(fetcher);
+    renderAsAdmin(fetcher);
     await waitFor(() => {
       expect(screen.getByTestId('ai-provider-pill').textContent).toMatch(
         /Provider: LM Studio \(qwen2\.5-7b-instruct\)/,
@@ -109,9 +125,30 @@ describe('HomePage', () => {
       }
       return undefined;
     };
-    renderWithProviders(fetcher);
+    renderAsAdmin(fetcher);
     await waitFor(() => {
       expect(screen.getByTestId('ai-provider-pill').textContent).toMatch(/Provider: unknown/);
+    });
+  });
+
+  it('hides the AI provider pill when the signed-in user is not an admin', async () => {
+    // No token / no user → AuthProvider reports user=null, is_admin gate fails,
+    // and the pill must stay out of the DOM even though the AI status endpoint
+    // is reachable.
+    const fetcher: Fetcher = async (path) => {
+      if (path === '/admin/ai/status') {
+        return {
+          provider: 'lmstudio',
+          model: 'qwen2.5-7b-instruct',
+          base_url: 'http://host.docker.internal:1234/v1',
+          reachable: true,
+        };
+      }
+      return undefined;
+    };
+    renderWithProviders(fetcher);
+    await waitFor(() => {
+      expect(screen.queryByTestId('ai-provider-pill')).toBeNull();
     });
   });
 });
