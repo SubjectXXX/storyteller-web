@@ -20,6 +20,13 @@
 # contained for CI. A future cleanup should publish the design-system
 # to a private npm registry and point both web + admin at it.
 #
+# The per-app repo places the web app at the repo root (the file: path
+# is "../packages/design-system"), whereas the storyteller monorepo
+# places it at application/web/ (file: path was "../../packages/
+# design-system"). The vendoring + path adjustment keeps both layouts
+# happy — local monorepo work still resolves naturally; per-app CI
+# resolves against the in-repo vendored copy.
+#
 # pnpm install (without --frozen-lockfile) is used because the web
 # per-app repo does not commit a lockfile — the lockfile was previously
 # generated locally on the monorepo checkout where the design-system
@@ -79,11 +86,11 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        working-directory: application/web
+        working-directory: .
         run: pnpm install
 
       - name: Run oxlint
-        working-directory: application/web
+        working-directory: .
         run: pnpm run lint
 
   typecheck:
@@ -105,11 +112,11 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        working-directory: application/web
+        working-directory: .
         run: pnpm install
 
       - name: Run tsc --noEmit
-        working-directory: application/web
+        working-directory: .
         run: pnpm run typecheck
 
   test:
@@ -131,11 +138,11 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        working-directory: application/web
+        working-directory: .
         run: pnpm install
 
       - name: Run vitest unit suite
-        working-directory: application/web
+        working-directory: .
         run: pnpm run test
 
   build:
@@ -157,11 +164,11 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        working-directory: application/web
+        working-directory: .
         run: pnpm install
 
       - name: Run vite build
-        working-directory: application/web
+        working-directory: .
         run: pnpm run build
 
       - name: Upload build artifact
@@ -169,7 +176,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: web-dist
-          path: application/web/dist
+          path: dist
           if-no-files-found: ignore
           retention-days: 7
 
