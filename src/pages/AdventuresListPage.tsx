@@ -109,10 +109,12 @@ export default function AdventuresListPage(): ReactElement {
         <div data-testid="adventures-empty">
           <EmptyState
             title="No adventures yet"
-            description="Pick a scenario to start your first adventure. Your progress will live here."
+            description="Start a new adventure and we'll set you up with a scenario. Your progress will live here."
             action={
               <Link to="/scenarios">
-                <Button intent="primary">Browse scenarios</Button>
+                <Button intent="primary" data-testid="start-adventure-cta">
+                  Start a new adventure
+                </Button>
               </Link>
             }
           />

@@ -40,6 +40,12 @@ describe('AdventuresListPage', () => {
       expect(screen.getByTestId('adventures-empty')).toBeTruthy();
     });
     expect(screen.getByRole('heading', { name: /no adventures yet/i })).toBeTruthy();
+    // Empty state offers an explicit CTA that takes the player to the
+    // scenario library where they can pick a scenario and start.
+    const cta = screen.getByTestId('start-adventure-cta');
+    expect(cta).toBeTruthy();
+    expect(cta.textContent?.trim()).toBe('Start a new adventure');
+    expect(cta.closest('a')?.getAttribute('href')).toBe('/scenarios');
   });
 
   it('shows the loading panel while the list query is in flight', async () => {
