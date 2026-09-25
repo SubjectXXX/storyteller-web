@@ -1,24 +1,42 @@
-import type { ReactElement } from 'react';
-import { cva, type VariantProps } from '@storyteller/design-system';
+import type { CSSProperties, ReactElement } from 'react';
 
-const loadingPanel = cva(
-  'flex w-full flex-col items-center justify-center gap-2 text-center',
-  {
-    variants: {
-      intent: {
-        page: 'min-h-[40vh] p-8',
-        inline: 'min-h-[40vh] p-4',
-      },
-    },
-    defaultVariants: { intent: 'page' },
-  },
-);
+type LoadingPanelIntent = 'page' | 'inline';
 
-type LoadingPanelProps = VariantProps<typeof loadingPanel> & { label?: string };
+interface LoadingPanelProps {
+  label?: string;
+  intent?: LoadingPanelIntent;
+}
 
-export function LoadingPanel({ label = 'Loading', intent }: LoadingPanelProps): ReactElement {
+// Base style + per-intent overrides. Inline styles so the layout works
+// without depending on Tailwind utility classes (the player SPA ships
+// only design tokens + reset; components style themselves with
+// `style` objects referencing CSS variables).
+const baseStyle: CSSProperties = {
+  display: 'flex',
+  width: '100%',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--space-2)',
+  textAlign: 'center',
+};
+
+const intentStyles: Record<LoadingPanelIntent, CSSProperties> = {
+  page: { minHeight: '40vh', padding: 'var(--space-8)' },
+  inline: { minHeight: '40vh', padding: 'var(--space-4)' },
+};
+
+export function LoadingPanel({
+  label = 'Loading',
+  intent = 'page',
+}: LoadingPanelProps): ReactElement {
   return (
-    <div role="status" aria-live="polite" data-loading-state="loading" className={loadingPanel({ intent })}>
+    <div
+      role="status"
+      aria-live="polite"
+      data-loading-state="loading"
+      style={{ ...baseStyle, ...intentStyles[intent] }}
+    >
       <span
         aria-hidden
         style={{
