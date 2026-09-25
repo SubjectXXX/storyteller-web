@@ -23,6 +23,7 @@ import {
   type TurnResponse,
   type TurnUsage,
 } from '@/api-client';
+import { useAuth } from '@/auth/useAuth';
 
 export const adventureKeys = {
   all: ['adventures'] as const,
@@ -32,12 +33,19 @@ export const adventureKeys = {
 
 export function useAdventures(): UseQueryResult<AdventureListResponse, ApiError> {
   const api = useApiClient();
+  // R24 DI-4: TopNav mounts the list query on every route (including
+  // /web/login). Without this gate, an unauthenticated visitor would
+  // see `GET /api/adventures → 401` in the Network tab every time
+  // they hit the login screen. Disable the query until a bearer
+  // token is hydrated so the request never leaves the browser.
+  const { token } = useAuth();
   return useQuery<AdventureListResponse, ApiError>({
     queryKey: adventureKeys.list(),
     queryFn: ({ signal }) => api.listAdventures({ signal }),
     // Adventures are short-lived; always refetch when the window regains focus
     // so the player sees their latest `last_played_at` after closing the tab.
     refetchOnWindowFocus: true,
+    enabled: token !== null,
   });
 }
 
