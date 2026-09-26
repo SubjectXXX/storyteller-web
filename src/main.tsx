@@ -27,16 +27,20 @@ if (!root) {
   throw new Error('Storyteller web — no #root element rendered by index.html');
 }
 
-// Order matters: QueryClientProvider → AuthProvider → BrowserRouter.
-// AuthProvider owns the bearer token + ApiClientProvider, so every route
-// renders with the correct Authorization header (or none, when signed out).
+// Order matters: QueryClientProvider → BrowserRouter → AuthProvider → router.
+// R38b — `AuthProvider` now calls `useNavigate()` inside `signOut()` to
+// route the operator to `/login` after a sign-out click. That hook
+// requires a `Router` ancestor, so the router must sit above the auth
+// provider. The auth context still owns the bearer token + ApiClient,
+// so every route continues to render with the correct Authorization
+// header (or none, when signed out).
 createRoot(root).render(
   <StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <BrowserRouter basename="/web">{router()}</BrowserRouter>
-        </AuthProvider>
+        <BrowserRouter basename="/web">
+          <AuthProvider>{router()}</AuthProvider>
+        </BrowserRouter>
       </QueryClientProvider>
     </ErrorBoundary>
   </StrictMode>,

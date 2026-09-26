@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router';
 import {
   ApiClientProvider,
   type ApiClient,
@@ -53,10 +54,13 @@ interface AuthProviderProps {
  * Wraps `<ApiClientProvider>` with the bearer token, then exposes the
  * session through `useAuth()`. Mount this in `main.tsx` between
  * `QueryClientProvider` and `BrowserRouter` so the auth context is the
- * first thing the router tree sees (matches ADR-0001 layering).
+ * first thing the router tree sees (matches ADR-0001 layering). The
+ * provider uses `useNavigate()` to route to `/login` after sign-out,
+ * so it must be rendered inside a `BrowserRouter` (not above it).
  */
 export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   // Lazy-init: only read storage once, on first render.
   const [token, setToken] = useState<string | null>(() => readStoredToken());
   const [user, setUser] = useState<UserResponse | null>(null);
@@ -162,8 +166,11 @@ export function AuthProvider({ children }: AuthProviderProps): ReactElement {
       setReady(true);
       setLoading(false);
       void queryClient.clear();
+      // Send the operator to the login form so subsequent API calls don't
+      // bounce with 401 on the page they just signed out of.
+      navigate('/login', { replace: true });
     }
-  }, [queryClient, token]);
+  }, [navigate, queryClient, token]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ token, user, ready, loading, error, signIn, signUp, signOut }),

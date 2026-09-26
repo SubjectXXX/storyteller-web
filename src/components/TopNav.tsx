@@ -4,7 +4,6 @@ import { Button } from '@/ui/Button';
 import { Pill } from '@/ui/Pill';
 import { useAuth } from '@/auth/useAuth';
 import { useAdventures, useAdventureStream } from '@/hooks/useAdventures';
-import { useNavigate } from 'react-router';
 
 /**
  * Top navigation surfacing the primary destinations a player uses in the
@@ -19,7 +18,6 @@ import { useNavigate } from 'react-router';
 export function TopNav(): ReactElement {
   const { token, user, signOut } = useAuth();
   const adventuresQuery = useAdventures();
-  const navigate = useNavigate();
   const params = useParams<{ id: string }>();
   const activeAdventureId = (() => {
     const parsed = Number(params.id);
@@ -30,9 +28,10 @@ export function TopNav(): ReactElement {
     adventuresQuery.data?.find((a) => a.status === 'active') ?? null;
   const isStreaming = activeStream.streaming;
 
-  const handleSignOut = async () => {
-    await signOut();
-    navigate('/');
+  // The AuthContext.signOut() already routes to /login on completion,
+  // so the click handler only needs to fire-and-forget.
+  const handleSignOut = () => {
+    void signOut();
   };
 
   return (
