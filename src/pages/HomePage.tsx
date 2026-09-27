@@ -59,7 +59,7 @@ export default function HomePage(): ReactElement {
       <PageHeader
         eyebrow="Welcome"
         title="Welcome, traveler"
-        description="Pick a scenario to read through its synopsis, or jump straight into play to walk through the surfaces we are polishing for S2."
+        description="Pick a scenario to read through its synopsis, or jump straight into play to walk through the surfaces we are polishing."
         actions={
           <>
             {user?.is_admin === true && (

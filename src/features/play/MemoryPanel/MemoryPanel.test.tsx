@@ -43,12 +43,13 @@ describe('MemoryPanel', () => {
     }
   });
 
-  it('renders the Stage 5 placeholder when the recap endpoint returns 404', async () => {
+  it('renders the not-available empty state when the recap endpoint returns 404', async () => {
     const fetcher: Fetcher = async () => {
-      throw new ApiError(404, { message: 'Coming in Stage 5', code: 'not_implemented' });
+      throw new ApiError(404, { message: 'not available yet', code: 'not_implemented' });
     };
     render(<MemoryPanel adventureId={42} />, { wrapper: makeWrapper(fetcher) });
-    expect(await screen.findByText(/Stage 5/)).toBeInTheDocument();
+    expect(await screen.findByText(/Recap not available yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(/stage 5/i)).not.toBeInTheDocument();
   });
 
   it('switches to the lore tab and renders the lore entries', async () => {

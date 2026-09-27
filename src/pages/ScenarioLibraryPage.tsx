@@ -74,7 +74,7 @@ export default function ScenarioLibraryPage(): ReactElement {
       <PageHeader
         eyebrow="Library"
         title="Choose a story"
-        description="Each scenario seeds a deterministic narrative graph you walk through with the composer. Real ratings come from the moderation pipeline (S5)."
+        description="Each scenario seeds a deterministic narrative graph you walk through with the composer. Real ratings come from the moderation pipeline."
       />
 
       <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-4)' }}>

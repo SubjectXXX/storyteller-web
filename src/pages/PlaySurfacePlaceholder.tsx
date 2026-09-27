@@ -175,11 +175,11 @@ export default function PlaySurfacePlaceholder(): ReactElement {
             }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Pill intent="muted" title="Disabled until S2">
-              Composer · S2
+            <Pill intent="muted" title="Disabled until the composer is available">
+              Composer
             </Pill>
             <Button intent="primary" disabled aria-label="Disabled in this build">
-              Send (S2)
+              Send
             </Button>
           </div>
         </form>

@@ -169,7 +169,7 @@ export default function WalletPage(): ReactElement {
       <PageHeader
         eyebrow="Wallet"
         title="Credits & packages"
-        description="Every purchase posts through the verified payment webhook, not the browser return URL. Local-dev top-ups add credits immediately for testing the S2 flow."
+        description="Every purchase posts through the verified payment webhook, not the browser return URL. Local-dev top-ups add credits immediately for testing the top-up flow."
       />
 
       {walletQuery.isLoading ? (

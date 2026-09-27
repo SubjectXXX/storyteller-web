@@ -53,7 +53,7 @@ export function QuestLog({ quests, title = 'Quests' }: QuestLogProps): ReactElem
       <Card title={title}>
         <EmptyState
           title="No quests logged"
-          description="The scenario manifest does not declare quests yet. The Story Seed editor ships quests in a later milestone."
+          description="This scenario doesn’t declare any quests yet. Quests will show up here once the story defines them."
         />
       </Card>
     );

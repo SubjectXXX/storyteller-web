@@ -221,8 +221,8 @@ function RecapTab({ recapTurns, generatedAt, isLoading, error }: RecapTabProps):
   if (isComingSoon) {
     return (
       <EmptyState
-        title="Recap arrives in Stage 5"
-        description={`(${error?.message ?? 'not implemented'}) The memory extractor that summarises recent beats is the Stage 5 deliverable.`}
+        title="Recap not available yet"
+        description="Recent beats for this branch haven’t been summarised yet. Try again after a few more exchanges."
       />
     );
   }
@@ -237,7 +237,7 @@ function RecapTab({ recapTurns, generatedAt, isLoading, error }: RecapTabProps):
     return (
       <EmptyState
         title="No recap yet"
-        description="The LLM has not produced a chronicle for this branch. Memory extraction rolls out in Stage 5.3."
+        description="The LLM hasn’t produced a chronicle for this branch yet. Try again after a few more exchanges."
       />
     );
   }
@@ -273,8 +273,8 @@ function LoreTab({ entries, isLoading, error, onSearch, searchValue }: LoreTabPr
   if (isComingSoon) {
     return (
       <EmptyState
-        title="Lore arrives in Stage 5"
-        description={`(${error?.message ?? 'not implemented'}) Canonical facts the LLM remembers will surface here once the lore extractor ships.`}
+        title="Lore not available yet"
+        description="The LLM hasn’t recorded any canon facts for this adventure yet. Check back after a few more exchanges."
       />
     );
   }
@@ -340,7 +340,7 @@ function PinnedTab({ pinned, isLoading, error }: PinnedTabProps): ReactElement {
     return (
       <EmptyState
         title="No pinned memories yet"
-        description="Star beats from the recap or lore tabs to keep them close at hand. Pinning ships in Stage 5.2."
+        description="Star beats from the recap or lore tabs to keep them close at hand."
       />
     );
   }

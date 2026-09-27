@@ -44,9 +44,9 @@ describe('useRecap', () => {
     expect(result.current.isFetching).toBe(false);
   });
 
-  it('surfaces 404 — Stage 5 placeholder path', async () => {
+  it('surfaces 404 — not-available path', async () => {
     const fetcher: Fetcher = async () => {
-      throw new ApiError(404, { message: 'Coming in Stage 5', code: 'not_implemented' });
+      throw new ApiError(404, { message: 'not available yet', code: 'not_implemented' });
     };
     const { result } = renderHook(() => useRecap(7), {
       wrapper: makeWrapper(fetcher),

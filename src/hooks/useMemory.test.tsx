@@ -57,10 +57,10 @@ describe('useMemoryRecap', () => {
     expect(result.current.isFetching).toBe(false);
   });
 
-  it('surfaces a 404 — Stage 5 placeholder path', async () => {
+  it('surfaces a 404 — not-available path', async () => {
     const fetcher: Fetcher = async () => {
       throw new ApiError(404, {
-        message: 'Coming in Stage 5',
+        message: 'not available yet',
         code: 'not_implemented',
       });
     };

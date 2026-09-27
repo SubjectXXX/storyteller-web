@@ -48,9 +48,9 @@ describe('PlaySurfacePlaceholder (legacy S1 surface, kept for /play/:id fallback
     expect(screen.getByRole('button', { name: /night barge/i })).toBeTruthy();
   });
 
-  it('renders the disabled composer preview until S2 ships', () => {
+  it('renders the disabled composer preview', () => {
     renderAt('/play');
-    const send = screen.getByRole('button', { name: /send \(s2\)/i }) as HTMLButtonElement;
+    const send = screen.getByRole('button', { name: /send/i }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
   });
 

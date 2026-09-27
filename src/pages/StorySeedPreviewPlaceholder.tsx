@@ -10,7 +10,7 @@ export default function StorySeedPreviewPlaceholder(): ReactElement {
         eyebrow="Story seed preview"
         title="Author tooling preview"
         description="The admin tooling will publish declarative story-seed packs that preview their entity graph here before they ship. The viewer wires into the play SPA so authors can step into a draft run."
-        actions={<Pill intent="info">S2 author tooling</Pill>}
+        actions={<Pill intent="info">Author tooling</Pill>}
       />
       <EmptyState
         title="No seed pack selected"
