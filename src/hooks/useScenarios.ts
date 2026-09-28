@@ -2,8 +2,6 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useApiClient } from '@/api-client';
 import {
   ApiError,
-  type PlayTurnChoiceRequest,
-  type PlayTurnResponse,
   type ScenarioDetailResponse,
   type ScenarioListQuery,
   type ScenarioListResponse,
@@ -18,7 +16,6 @@ export const scenarioKeys = {
   list: (query: ScenarioListQuery | undefined) =>
     [...scenarioKeys.all, 'list', query ?? {}] as const,
   detail: (id: string) => [...scenarioKeys.all, 'detail', id] as const,
-  playTurn: (id: string) => [...scenarioKeys.all, 'playTurn', id] as const,
 };
 
 export function useScenarios(query?: ScenarioListQuery): UseQueryResult<ScenarioListResponse, ApiError> {
@@ -39,23 +36,4 @@ export function useScenario(id: string | undefined): UseQueryResult<ScenarioDeta
     },
     enabled: Boolean(id),
   });
-}
-
-export function usePlayTurn(scenarioId: string | undefined): UseQueryResult<PlayTurnResponse, ApiError> {
-  const api = useApiClient();
-  return useQuery<PlayTurnResponse, ApiError>({
-    queryKey: scenarioKeys.playTurn(scenarioId ?? '__missing__'),
-    queryFn: ({ signal }) => {
-      if (!scenarioId) throw new ApiError(400, { message: 'Scenario id is required', code: 'missing_id' });
-      return api.getPlayTurn(scenarioId, { signal });
-    },
-    enabled: Boolean(scenarioId),
-  });
-}
-
-export function useSubmitChoice(scenarioId: string) {
-  const api = useApiClient();
-  return {
-    mutationFn: (body: PlayTurnChoiceRequest) => api.submitChoice(scenarioId, body),
-  };
 }

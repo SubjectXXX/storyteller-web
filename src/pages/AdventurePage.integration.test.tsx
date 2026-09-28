@@ -83,8 +83,10 @@ describe('AdventurePage — world panels integration', () => {
     await waitFor(() => expect(screen.getByText(CHARACTER_FIXTURE.name)).toBeInTheDocument());
     expect(screen.getByText(NPC_ROSTER_FIXTURE[0]!.name)).toBeInTheDocument();
     expect(screen.getByRole('region', { name: /memory|recap/i })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /suspicion/i })).toBeInTheDocument();
-    expect(screen.getByRole('list')).toBeInTheDocument();
+    // Each mounted panel contributes its own list, so this has to be a
+    // named lookup — a bare `getByRole('list')` is ambiguous now that the
+    // roster, quest log, inventory and memory surfaces all render.
+    expect(screen.getByRole('list', { name: /npc roster/i })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /branch navigation/i })).toBeInTheDocument();
   });
 

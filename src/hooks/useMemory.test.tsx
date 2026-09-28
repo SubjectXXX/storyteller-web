@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
+import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   ApiClientProvider,
   ApiError,
   LORE_FIXTURE,
-  PINNED_MEMORY_FIXTURE,
   RECAP_FIXTURE,
   type Fetcher,
 } from '@/api-client';
@@ -22,12 +22,15 @@ function makeWrapper(fetcher: Fetcher) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // `<AuthProvider>` calls `useNavigate()`, so the router has to sit above it.
   return ({ children }: { children: ReactNode }): ReactElement => (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 }
 
@@ -116,19 +119,35 @@ describe('useMemoryLore', () => {
 });
 
 describe('useMemoryPinned', () => {
-  it('returns the pinned list (empty list is a normal state)', async () => {
+  // The API has no `adventures/{id}/pinned-memories` route, so the hook must
+  // report the gap instead of firing a request that can only 404 (and then
+  // be mistaken for "the player has not starred anything").
+  it('never issues a request for the missing pinned-memories route', async () => {
+    const calls: string[] = [];
     const fetcher: Fetcher = async (path) => {
-      if (path === `/adventures/${PINNED_MEMORY_FIXTURE.adventure_id}/pinned-memories`) {
-        return PINNED_MEMORY_FIXTURE;
-      }
+      calls.push(path);
       throw new ApiError(404, { message: 'not found', code: 'not_found' });
     };
-    const { result } = renderHook(
-      () => useMemoryPinned(PINNED_MEMORY_FIXTURE.adventure_id),
-      { wrapper: makeWrapper(fetcher) },
-    );
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.pinned).toHaveLength(0);
+    const { result } = renderHook(() => useMemoryPinned(101), {
+      wrapper: makeWrapper(fetcher),
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(calls).toEqual([]);
+  });
+
+  it('surfaces endpoint_not_implemented — not an empty pinned list', async () => {
+    const fetcher: Fetcher = async () => {
+      throw new Error('should not be called');
+    };
+    const { result } = renderHook(() => useMemoryPinned(101), {
+      wrapper: makeWrapper(fetcher),
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    const error = result.current.error as ApiError;
+    expect(error.status).toBe(501);
+    expect(error.code).toBe('endpoint_not_implemented');
+    expect(result.current.data).toBeUndefined();
+    expect(error.message).toMatch(/not available/i);
   });
 
   it('does not run when the adventure id is missing', () => {
@@ -139,6 +158,7 @@ describe('useMemoryPinned', () => {
       wrapper: makeWrapper(fetcher),
     });
     expect(result.current.isFetching).toBe(false);
+    expect(result.current.isError).toBe(false);
   });
 });
 

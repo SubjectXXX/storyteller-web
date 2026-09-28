@@ -33,11 +33,11 @@ import {
   EFFECTIVE_SETTINGS_FIXTURE,
   IMAGE_CAROUSEL_FIXTURE,
   IMAGE_JOB_COMPLETED_FIXTURE,
+  IMAGE_JOB_PENDING_FIXTURE,
   IMAGE_JOB_QUEUED_FIXTURE,
   LORE_FIXTURE,
   NPC_FIXTURE,
   PINNED_MEMORY_FIXTURE,
-  PLAY_FIXTURE,
   PLAYER_SETTINGS_FIXTURE,
   RECAP_FIXTURE,
   REFERRAL_RESOURCE_FIXTURE,
@@ -74,7 +74,6 @@ import {
   type NpcResource,
   type PinnedMemory,
   type PinnedMemoryListResponse,
-  type PlayTurnFixture,
   type PlayerSettingsResource,
   type PlayerSettingsUpdateRequest,
   type RecapResource,
@@ -332,17 +331,16 @@ export type EffectiveSettingsResponse = EffectiveSettingsResource;
 export type PlayerSettingsResponse = PlayerSettingsResource;
 export type PlayerSettingsUpdateRequestBody = PlayerSettingsUpdateRequest;
 
-// ---------- Legacy play-turn shape (used by PlaySurfacePlaceholder) -------
+// ---------- Legacy scenario/play shapes ----------------------------------
+//
+// The `GET/POST /api/scenarios/{slug}/play-turn` surface the S1 shell shipped
+// has NO counterpart in the API route table (`routes/api.php` only declares
+// `scenarios/{slug}` and `scenarios/{slug}/versions/{version}`). The client
+// operations and their types were removed rather than left faking a turn, so
+// these aliases now describe the scenario documents that do exist.
 
 export type ScenarioListLegacyResponse = ReadonlyArray<ScenarioFixture>;
 export type ScenarioDetailLegacyResponse = ScenarioFixture;
-export type PlayTurnLegacyResponse = PlayTurnFixture;
-
-export interface PlayTurnChoiceRequest {
-  readonly choiceId: string;
-}
-
-export type PlayTurnResponse = PlayTurnFixture;
 export type SettingsLegacyResponse = ReadonlyArray<SettingGroupFixture>;
 export interface SettingsLegacyUpdateRequest {
   readonly groups: ReadonlyArray<SettingGroupFixture>;
@@ -390,16 +388,18 @@ export interface LoreListQuery {
 export type LoreListResponseShape = LoreListResponse;
 
 /**
- * `GET /api/adventures/{id}/pinned-memories` — flat list of player-
- * starred recap turns or lore entries. The Stage 5 worker also exposes
- * `POST /api/adventures/{id}/pinned-memories` to toggle; the SPA only
- * reads for now, so we declare the read shape and a request body.
+ * Pinned memories are NOT implemented server-side: `routes/api.php` has no
+ * `adventures/{id}/pinned-memories` route in either direction, so there is
+ * nothing to repoint at. The `getPinnedMemories` / `pinMemory` client
+ * operations were deleted; `useMemoryPinned` now reports the gap as a
+ * `501 endpoint_not_implemented` error instead of firing a request that can
+ * only ever 404 and be misread as "the player has not starred anything".
+ *
+ * The `PinnedMemory` / `PinnedMemoryListResponse` shapes stay exported because
+ * they are the contract a future server route should implement.
+ *
+ * @see useMemoryPinned (src/hooks/useMemory.ts)
  */
-export type PinnedMemoryListResponseShape = PinnedMemoryListResponse;
-export interface PinnedMemoryCreateRequest {
-  readonly kind: 'recap' | 'lore';
-  readonly ref_id: string;
-}
 
 // ---------- Stage 6 — Visual generation (S6-T01..S6-T02) ---------------------
 //
@@ -688,15 +688,6 @@ export interface ApiClient {
     query?: LoreListQuery,
     options?: RequestOptions,
   ) => Promise<LoreListResponseShape>;
-  readonly getPinnedMemories: (
-    adventureId: number,
-    options?: RequestOptions,
-  ) => Promise<PinnedMemoryListResponseShape>;
-  readonly pinMemory: (
-    adventureId: number,
-    body: PinnedMemoryCreateRequest,
-    options?: RequestOptions,
-  ) => Promise<PinnedMemoryListResponseShape>;
 
   // Stage 6 — Visual generation (S6-T01..S6-T02)
   readonly createImageJob: (
@@ -720,15 +711,11 @@ export interface ApiClient {
     opts: { sinceTurnId?: number } & StreamHandlers,
   ) => Promise<void>;
 
-  // Legacy play-turn surface (used by PlaySurfacePlaceholder until S2 wires
-  // /api/adventures/:id for actual play). Keep these so the placeholder
-  // continues to render offline.
-  readonly getPlayTurn: (scenarioId: string, options?: RequestOptions) => Promise<PlayTurnLegacyResponse>;
-  readonly submitChoice: (
-    scenarioId: string,
-    body: PlayTurnChoiceRequest,
-    options?: RequestOptions,
-  ) => Promise<PlayTurnLegacyResponse>;
+  // No legacy play-turn surface. `GET/POST /api/scenarios/{slug}/play-turn`
+  // was never declared in the API route table, so the client operations were
+  // removed instead of being answered by a fixture. Live play lives on the
+  // auth-gated `/adventures/{id}` surface (`adventures.show` +
+  // `adventures.turns.store`); see `AdventurePage`.
 }
 
 // ---------- Live (HTTP) transport --------------------------------------------
@@ -1455,25 +1442,17 @@ export function fixtureFetcher(): Fetcher {
         entries: entry ? [entry] : [],
       } satisfies LoreListResponse;
     }
-    if (method === 'GET' && /^\/adventures\/\d+\/pinned-memories$/.test(path_)) {
-      return PINNED_MEMORY_FIXTURE satisfies PinnedMemoryListResponse;
-    }
-    if (method === 'POST' && /^\/adventures\/\d+\/pinned-memories$/.test(path_)) {
-      // The fixture simply echoes the current pinned list back. The real
-      // API worker will insert and re-rank; we keep the contract identical
-      // so swapping is a one-line change.
-      const body = (options.body ?? {}) as PinnedMemoryCreateRequest;
-      if (!body.kind || !body.ref_id) {
-        throw new ApiError(422, {
-          message: 'kind and ref_id are required.',
-          code: 'validation',
-        });
-      }
-      return PINNED_MEMORY_FIXTURE satisfies PinnedMemoryListResponse;
-    }
+    // No `pinned-memories` handler: the API never shipped that route, so a
+    // fixture here would only ever mask the missing endpoint as a healthy
+    // empty list. `useMemoryPinned` reports the gap as an error instead.
 
     // ----- Stage 6 — Visual generation -----
-    if (method === 'POST' && /^\/adventures\/\d+\/branches\/\d+\/image$/.test(path_)) {
+    // Mirrors `adventures.turns.image.store`:
+    //   POST /adventures/{id}/turns/{turnId}/image  ->whereNumber(['id','turnId'])
+    // This must stay keyed on the path the *live* client builds (see
+    // `createImageJob`), otherwise the offline-degrade path below can never
+    // fire and a dead network surfaces as a 404 from the fixture transport.
+    if (method === 'POST' && /^\/adventures\/\d+\/turns\/\d+\/image$/.test(path_)) {
       const body = (options.body ?? {}) as GenerateImageRequest;
       if (!body.prompt || body.prompt.trim().length === 0) {
         throw new ApiError(422, {
@@ -1482,21 +1461,28 @@ export function fixtureFetcher(): Fetcher {
           fields: { prompt: 'prompt is required.' },
         });
       }
-      // Stage 6 fixture: a deterministic fake job so the polling path
-      // resolves predictably. The real API worker issues a real job and
-      // surfaces an opaque `job_id` we then poll.
-      return IMAGE_JOB_QUEUED_FIXTURE satisfies ImageJobResponse;
+      // The real controller answers with the freshly created job in its
+      // first (non-terminal) state, so the caller still has to poll
+      // `GET /image-jobs/{jobId}` for the asset. Mirrored here.
+      return IMAGE_JOB_PENDING_FIXTURE satisfies ImageJobResponse;
     }
     if (method === 'GET' && /^\/image-jobs\/[^/]+$/.test(path_)) {
-      // Stage 6 fixture: the first poll returns `generating`, the second
-      // resolves to `completed`. Real callers will poll against the live
-      // endpoint; tests inject their own fetcher to drive the state
-      // machine.
+      // Stage 6 fixture: the poll resolves straight to `completed` with the
+      // fixture asset so the degrade path lands on a finished image instead
+      // of spinning. Real callers poll against the live endpoint; tests
+      // inject their own fetcher to drive the state machine.
       const match = path_.match(/^\/image-jobs\/([^/]+)$/);
-      const requestedJobId = match?.[1];
+      // The route is `->whereNumber('jobId')`, so the id the caller polls is
+      // numeric. Echo it back (the hook keys its query on it) and fall back
+      // to the fixture id when the segment is not a usable integer.
+      const requestedJobId = Number(match?.[1]);
+      const jobId =
+        Number.isSafeInteger(requestedJobId) && requestedJobId > 0
+          ? requestedJobId
+          : IMAGE_JOB_COMPLETED_FIXTURE.job_id;
       const completed = {
         ...IMAGE_JOB_COMPLETED_FIXTURE,
-        job_id: requestedJobId ?? IMAGE_JOB_COMPLETED_FIXTURE.job_id,
+        job_id: jobId,
       } satisfies ImageJobResponse;
       return completed;
     }
@@ -1507,13 +1493,8 @@ export function fixtureFetcher(): Fetcher {
       } satisfies ImageCarouselResponse;
     }
 
-    // ----- Legacy play-turn (kept for PlaySurfacePlaceholder) -----
-    if (method === 'GET' && /^\/scenarios\/[^/]+\/play-turn$/.test(path_)) {
-      return PLAY_FIXTURE satisfies PlayTurnFixture;
-    }
-    if (method === 'POST' && /^\/scenarios\/[^/]+\/play-turn$/.test(path_)) {
-      return PLAY_FIXTURE satisfies PlayTurnFixture;
-    }
+    // No `play-turn` handler: `GET/POST /api/scenarios/{slug}/play-turn` is
+    // not in the API route table, so the fixture would be a fake success.
 
     throw new ApiError(404, { message: `fixtureFetcher: no handler for ${method} ${path}`, code: 'not_found' });
   };
@@ -1749,17 +1730,7 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
         method: 'GET',
       }) as Promise<LoreListResponseShape>;
     },
-    getPinnedMemories: (adventureId, options) =>
-      fetcher(`/adventures/${adventureId}/pinned-memories`, {
-        ...options,
-        method: 'GET',
-      }) as Promise<PinnedMemoryListResponseShape>,
-    pinMemory: (adventureId, body, options) =>
-      fetcher(`/adventures/${adventureId}/pinned-memories`, {
-        ...options,
-        method: 'POST',
-        body,
-      }) as Promise<PinnedMemoryListResponseShape>,
+    // `pinned-memories` has no server route; see `useMemoryPinned`.
 
     // Stage 6 — Visual generation (S6-T01..S6-T02)
     createImageJob: (adventureId, turnId, body, options) =>
@@ -1789,19 +1760,6 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
       };
       await consumeAdventureStream(adventureId, handlersWithSince, DEFAULT_BASE_URL, authToken);
     },
-
-    // Legacy
-    getPlayTurn: (scenarioId, options) =>
-      fetcher(`/scenarios/${encodeURIComponent(scenarioId)}/play-turn`, {
-        ...options,
-        method: 'GET',
-      }) as Promise<PlayTurnLegacyResponse>,
-    submitChoice: (scenarioId, body, options) =>
-      fetcher(`/scenarios/${encodeURIComponent(scenarioId)}/play-turn`, {
-        ...options,
-        method: 'POST',
-        body,
-      }) as Promise<PlayTurnLegacyResponse>,
   };
 }
 
@@ -1812,6 +1770,10 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
  * returns fixture data when the primary throws a network error. The fallback
  * is silent in production; dev surfaces a `console.warn` so the engineer
  * knows they're looking at fixtures.
+ *
+ * Policy: fixtures stand in for a *transport* failure only. A real HTTP
+ * answer (401 / 403 / 404 / 422 / 5xx) is never masked — see
+ * {@link isNetworkError}.
  */
 export function withFixtureFallback(primary: Fetcher, fallback: Fetcher = fixtureFetcher()): Fetcher {
   return async (path, options) => {
@@ -1830,8 +1792,17 @@ export function withFixtureFallback(primary: Fetcher, fallback: Fetcher = fixtur
   };
 }
 
+/**
+ * Is this a transport/offline failure, i.e. is it legitimate to answer from
+ * fixtures?
+ *
+ * `ApiError` carries a real HTTP status, so a 401/403/404/422/5xx is an honest
+ * server answer and must never be faked. `status === 0` is the codebase's
+ * sentinel for "no response reached us" (see `ScenarioLibraryPage`, which
+ * renders it as `offline`), so it degrades like a `TypeError` from `fetch`.
+ */
 function isNetworkError(err: unknown): boolean {
-  if (err instanceof ApiError) return false;
+  if (err instanceof ApiError) return err.status === 0;
   if (err instanceof TypeError) return true;
   if (err instanceof Error) {
     return /network|failed to fetch|load failed/i.test(err.message);

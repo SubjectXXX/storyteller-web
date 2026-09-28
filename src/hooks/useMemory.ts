@@ -14,9 +14,7 @@
  *     { adventure_id, entries: [{ key, title, body, version, tags,
  *       scenario_slug, updated_at }] }
  *
- *   GET /api/adventures/{id}/pinned-memories
- *     { adventure_id, pinned: [{ id, kind, ref_id, title, body,
- *       pinned_at }] }
+ * Pinned memories have NO server route — see `useMemoryPinned`.
  *
  * Errors:
  *   - 404: the API has not shipped the endpoint yet — the consumer is
@@ -36,7 +34,7 @@ import {
   ApiError,
   type LoreEntry,
   type LoreListResponseShape,
-  type PinnedMemoryListResponseShape,
+  type PinnedMemoryListResponse,
   type RecapResponse,
 } from '@/api-client';
 import { useApiClient } from '@/api-client';
@@ -125,27 +123,36 @@ export function useMemoryLore(
 }
 
 /**
- * `useMemoryPinned` — fetch the player's pinned memories for the active
- * adventure. Empty list is a normal state (player has not starred
- * anything yet); consumers should render an `EmptyState`.
+ * `useMemoryPinned` — player-pinned memories are NOT available yet.
+ *
+ * There is no `GET/POST /api/adventures/{id}/pinned-memories` route in the
+ * API route table, so the client operations were removed rather than pointed
+ * at an endpoint that always 404s. A 404 here would render as "No pinned
+ * memories yet" — a healthy empty state for a feature that does not exist —
+ * so this hook issues no request at all and fails with a typed
+ * `501 endpoint_not_implemented` instead. `<MemoryPanel>` renders
+ * `error.message`, so the gap stays visible rather than silent.
+ *
+ * Follow-up: ship `GET/POST /api/adventures/{id}/pinned-memories` behind
+ * `auth:sanctum` (ownership-checked like the sibling recap / lore routes),
+ * re-add `getPinnedMemories` / `pinMemory` to the api-client, and drop this
+ * hook back to a real request.
  */
 export function useMemoryPinned(
   adventureId: number | undefined,
-): UseQueryResult<PinnedMemoryListResponseShape, ApiError> {
-  const api = useApiClient();
-  return useQuery<PinnedMemoryListResponseShape, ApiError>({
+): UseQueryResult<PinnedMemoryListResponse, ApiError> {
+  return useQuery<PinnedMemoryListResponse, ApiError>({
     queryKey: memoryKeys.pinned(adventureId),
-    queryFn: ({ signal }) => {
-      if (adventureId === undefined) {
-        throw new ApiError(400, {
-          message: 'Adventure id is required',
-          code: 'missing_id',
-        });
-      }
-      return api.getPinnedMemories(adventureId, { signal });
+    queryFn: async () => {
+      throw new ApiError(501, {
+        message:
+          'Pinned memories are not available yet — the API has no adventures/{id}/pinned-memories route.',
+        code: 'endpoint_not_implemented',
+      });
     },
     enabled: typeof adventureId === 'number',
-    // Pinned list mutates as the player stars new beats; keep it fresh.
-    staleTime: 0,
+    // Nothing to cache: the request never leaves the browser.
+    staleTime: Infinity,
+    retry: false,
   });
 }

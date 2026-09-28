@@ -56,6 +56,19 @@ export default defineConfig({
     port: 4173,
     strictPort: false,
   },
+  // Vitest 3 bundles Vite 7, while `@vitejs/plugin-react@6` declares a
+  // `vite: ^8` peer — under Vitest the plugin is inert, so the esbuild
+  // transform falls back to the classic JSX runtime and every `.tsx` test
+  // dies with `ReferenceError: React is not defined`. Pin the automatic
+  // runtime explicitly so the test transform matches `tsconfig`'s
+  // `jsx: react-jsx`. This mirrors the same block in
+  // `application/admin/vite.config.ts`. (Vite 8 / rolldown uses the
+  // top-level `oxc` block instead, so this does not affect the
+  // production build.)
+  esbuild: {
+    jsx: 'automatic',
+    jsxImportSource: 'react',
+  },
   test: {
     environment: 'happy-dom',
     globals: true,

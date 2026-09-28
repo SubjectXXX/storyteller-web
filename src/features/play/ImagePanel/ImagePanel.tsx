@@ -97,7 +97,7 @@ function statusIntent(
       return 'success';
     case 'failed':
       return 'danger';
-    case 'queued':
+    case 'pending':
     case 'generating':
       return 'info';
     case 'idle':
@@ -110,7 +110,7 @@ function statusLabel(
   status: ReturnType<typeof useImageJob>['status'],
 ): string {
   switch (status) {
-    case 'queued':
+    case 'pending':
       return 'Queued';
     case 'generating':
       return 'Generating';
@@ -196,7 +196,7 @@ export function ImagePanel({
           <>
             <GeneratingSkeleton />
             <p style={promptRowStyle} role="status" aria-live="polite">
-              {job.status === 'queued' ? 'Queued\u2026' : 'Generating\u2026'}
+              {job.status === 'pending' ? 'Queued\u2026' : 'Generating\u2026'}
             </p>
           </>
         ) : displayedAsset ? (

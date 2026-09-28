@@ -8,6 +8,7 @@ import {
   type Fetcher,
 } from '@/api-client';
 import { usePlayerSettings, useUpdatePlayerSettings } from './usePlayerSettings';
+import { MemoryRouter } from 'react-router';
 import { AuthProvider } from '@/auth/AuthContext';
 
 function makeWrapper(fetcher: Fetcher) {
@@ -16,9 +17,12 @@ function makeWrapper(fetcher: Fetcher) {
   });
   return ({ children }: { children: ReactNode }): ReactElement => (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
-      </AuthProvider>
+      {/* AuthProvider calls useNavigate(), so the router must wrap it. */}
+      <MemoryRouter>
+        <AuthProvider>
+          <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+        </AuthProvider>
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
