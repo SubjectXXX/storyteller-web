@@ -9,7 +9,7 @@
  * (history). Tests inject a fetcher to drive the state machine
  * without a real backend.
  */
-import { useMemo, type CSSProperties, type ReactElement } from 'react';
+import { useMemo, type CSSProperties, type ReactElement, type ReactNode } from 'react';
 import { Card } from '@/ui/Card';
 import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
@@ -33,6 +33,20 @@ export interface ImagePanelProps {
    * verbatim; pages can wire a textarea in front if they want.
    */
   readonly initialPrompt?: string;
+  /**
+   * Rendered as the panel's bottom action row instead of the default
+   * single-button row. The render function is handed the *real*
+   * regenerate handler, its pending state, and whether it is currently
+   * allowed to run, so a page can compose the design's caption row
+   * (scene label, Regenerate, archive affordance) around the one
+   * genuine control rather than shipping a second, disconnected copy.
+   * Omit the prop and the original single-button row renders unchanged.
+   */
+  readonly renderActions?: (args: {
+    readonly regenerate: () => void;
+    readonly isLoading: boolean;
+    readonly isDisabled: boolean;
+  }) => ReactNode;
 }
 
 const imageStyle: CSSProperties = {
@@ -143,6 +157,7 @@ export function ImagePanel({
   turnId,
   title = 'Visuals',
   initialPrompt = DEFAULT_IMAGE_PROMPT,
+  renderActions,
 }: ImagePanelProps): ReactElement {
   const job = useImageJob(adventureId, branchId, turnId, initialPrompt);
   const carouselQuery = useImageCarousel(adventureId);
@@ -221,16 +236,27 @@ export function ImagePanel({
           />
         )}
         <div style={actionsRowStyle}>
-          <Button
-            intent="primary"
-            size="sm"
-            disabled={job.isLoading || branchId === undefined || turnId === undefined}
-            onClick={() => job.regenerate()}
-            data-testid="image-regenerate"
-            aria-label="Regenerate image for the current turn"
-          >
-            {job.isLoading ? 'Regenerating\u2026' : 'Regenerate'}
-          </Button>
+          {renderActions ? (
+            // The page composes its own row (design's caption row) around
+            // the same real handler, so there is still exactly one
+            // Regenerate control and one network call.
+            renderActions({
+              regenerate: () => job.regenerate(),
+              isLoading: job.isLoading,
+              isDisabled: job.isLoading || branchId === undefined || turnId === undefined,
+            })
+          ) : (
+            <Button
+              intent="primary"
+              size="sm"
+              disabled={job.isLoading || branchId === undefined || turnId === undefined}
+              onClick={() => job.regenerate()}
+              data-testid="image-regenerate"
+              aria-label="Regenerate image for the current turn"
+            >
+              {job.isLoading ? 'Regenerating\u2026' : 'Regenerate'}
+            </Button>
+          )}
         </div>
         <ImageCarousel
           assets={carouselAssets}

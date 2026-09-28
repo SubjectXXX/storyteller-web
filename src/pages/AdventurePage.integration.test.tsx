@@ -78,14 +78,30 @@ function stage4Fetcher(overrides: Partial<{
 }
 
 describe('AdventurePage — world panels integration', () => {
-  it('renders every Stage 4 panel alongside the existing narration / composer', async () => {
+  it('mounts the narration / composer and exposes every Stage 4 panel through the context rail', async () => {
     renderAt('/adventures/101', stage4Fetcher());
+    // Character is the default rail tab, so the character sheet and the
+    // inventory are on screen without any interaction.
     await waitFor(() => expect(screen.getByText(CHARACTER_FIXTURE.name)).toBeInTheDocument());
-    expect(screen.getByText(NPC_ROSTER_FIXTURE[0]!.name)).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: /memory|recap/i })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /suspicion/i })).toBeInTheDocument();
     expect(screen.getByRole('list')).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /branch navigation/i })).toBeInTheDocument();
+
+    // Each of the remaining panels lives behind its own rail tab.
+    const openTab = (name: RegExp) =>
+      fireEvent.click(screen.getByRole('tab', { name }));
+    const tabPanel = () => screen.getByRole('tabpanel');
+
+    openTab(/NPC Codex/);
+    expect(tabPanel().textContent).toContain(NPC_ROSTER_FIXTURE[0]!.name);
+
+    openTab(/Memory & Lore/);
+    expect(tabPanel().textContent?.toLowerCase()).toMatch(/memory|lore/);
+
+    openTab(/Dice & Checks/);
+    expect(tabPanel().textContent).toContain('Suspicion');
+
+    // Branch navigation is gone from the player view.
+    expect(screen.queryByRole('group', { name: /branch navigation/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /fork branch/i })).toBeNull();
   });
 
   it('dispatches the retry mutation when the player clicks Retry', async () => {

@@ -55,7 +55,7 @@ describe('AdventurePage', () => {
       expect(screen.getByRole('heading', { level: 1, name: /cartographer/i })).toBeTruthy();
     });
     expect(screen.getByLabelText(/say or do something/i)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /submit turn/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^send/i })).toBeTruthy();
   });
 
   it('redirects to /not-a-real-page on a 404', async () => {
@@ -86,11 +86,11 @@ describe('AdventurePage', () => {
     };
     renderAt('/adventures/101', fetcher);
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /submit turn/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^send/i })).toBeTruthy();
     });
 
     setNativeValue(screen.getByLabelText(/say or do something/i), 'Open the drawer.');
-    fireEvent.click(screen.getByRole('button', { name: /submit turn/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^send/i }));
 
     await waitFor(() => {
       expect(calls).toContain('POST /adventures/101/turns');
@@ -110,11 +110,11 @@ describe('AdventurePage', () => {
     };
     renderAt('/adventures/101', fetcher);
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /submit turn/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^send/i })).toBeTruthy();
     });
 
     setNativeValue(screen.getByLabelText(/say or do something/i), 'Try again.');
-    fireEvent.click(screen.getByRole('button', { name: /submit turn/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^send/i }));
 
     await waitFor(() => {
       const alert = screen.queryByRole('alert');

@@ -7,11 +7,23 @@ export const walletKeys = {
   me: () => [...walletKeys.all, 'me'] as const,
 };
 
-export function useWallet(): UseQueryResult<WalletResponse, ApiError> {
+export interface UseWalletOptions {
+  /**
+   * Skip the request entirely. Used by `<TopNav>` so the credit chip
+   * only issues `GET /api/wallet` on the player HUD route instead of on
+   * every page that mounts the nav.
+   */
+  readonly enabled?: boolean;
+}
+
+export function useWallet(
+  options: UseWalletOptions = {},
+): UseQueryResult<WalletResponse, ApiError> {
   const api = useApiClient();
   return useQuery<WalletResponse, ApiError>({
     queryKey: walletKeys.me(),
     queryFn: ({ signal }) => api.getWallet({ signal }),
+    enabled: options.enabled ?? true,
   });
 }
 

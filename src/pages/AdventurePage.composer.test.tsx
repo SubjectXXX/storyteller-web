@@ -70,7 +70,7 @@ describe('AdventurePage composer (v5 play surface)', () => {
     // groups them together (defensive: a future refactor that splits
     // them apart would still pass the "composer exists" assertion
     // above, so this extra check is the trip wire).
-    const submit = screen.getByRole('button', { name: /submit turn/i });
+    const submit = screen.getByRole('button', { name: /^send/i });
     expect(submit).toBeTruthy();
   });
 
@@ -97,7 +97,7 @@ describe('AdventurePage composer (v5 play surface)', () => {
 
     await screen.findByLabelText(/say or do something/i);
     setNativeValue(screen.getByLabelText(/say or do something/i), 'Open the drawer.');
-    fireEvent.click(screen.getByRole('button', { name: /submit turn/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^send/i }));
 
     await waitFor(() => {
       expect(turnCalls).toHaveLength(1);

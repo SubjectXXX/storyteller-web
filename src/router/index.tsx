@@ -20,12 +20,16 @@ import {
   WalletPage,
 } from './lazyPages';
 
-function wrap(element: ReactElement, requireAuth = false): ReactElement {
+function wrap(
+  element: ReactElement,
+  requireAuth = false,
+  layout: 'default' | 'hud' = 'default',
+): ReactElement {
   const inner = (
     <Suspense fallback={<LoadingPanel label="Loading" />}>{element}</Suspense>
   );
   return (
-    <PageShell>
+    <PageShell layout={layout}>
       {requireAuth ? <AuthGate>{inner}</AuthGate> : inner}
     </PageShell>
   );
@@ -43,7 +47,10 @@ export function router(): ReactElement {
       <Route path="/scenarios" element={wrap(<ScenarioLibraryPage />)} />
       <Route path="/scenarios/:slug" element={wrap(<ScenarioDetailPage />)} />
       <Route path="/adventures" element={wrap(<AdventuresListPage />, true)} />
-      <Route path="/adventures/:id" element={wrap(<AdventurePage />, true)} />
+      {/* The desktop player view is the only route that opts into the
+          fixed, non-scrolling HUD frame. Every other route keeps the
+          scrolling document layout. */}
+      <Route path="/adventures/:id" element={wrap(<AdventurePage />, true, 'hud')} />
       <Route path="/play/:adventureId?" element={wrap(<PlaySurfacePlaceholder />)} />
       <Route path="/login" element={wrap(<LoginPage />)} />
       <Route path="/register" element={wrap(<RegisterPage />)} />

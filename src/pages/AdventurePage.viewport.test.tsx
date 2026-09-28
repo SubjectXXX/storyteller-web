@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fireEvent, render, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdventurePage from './AdventurePage';
@@ -85,13 +85,18 @@ describe('AdventurePage — viewport behaviour', () => {
     expect(container.querySelector('[data-testid="adventure-world-grid"]')).toBeTruthy();
   });
 
-  it('still mounts every panel on mobile (<768px) and the branch tree popover opens', async () => {
+  it('keeps the HUD frame mounted on mobile (<768px) with no branch tree', async () => {
     setViewport(420);
-    const { container } = renderAt(fullStage4Fetcher());
+    const { container, queryByRole } = renderAt(fullStage4Fetcher());
     await waitFor(() =>
       expect(container.querySelector('[data-testid="adventure-world-grid"]')).toBeInTheDocument(),
     );
-    fireEvent.click(container.querySelector('[aria-haspopup="dialog"]') as HTMLElement);
-    expect(container.querySelector('[role="dialog"][aria-label="Branch tree"]')).toBeTruthy();
+    // The non-scrolling frame and its two scroll regions are present…
+    expect(container.querySelector('[data-testid="adventure-story-column"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="adventure-action-bar"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Adventure context"]')).toBeTruthy();
+    // …and the branch tree is gone at every width.
+    expect(container.querySelector('[aria-haspopup="dialog"]')).toBeNull();
+    expect(queryByRole('dialog', { name: 'Branch tree' })).toBeNull();
   });
 });

@@ -1,9 +1,11 @@
 import type { CSSProperties, ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
-import { PageHeader } from '@/ui/PageHeader';
+import { Archive, Image as ImageIcon } from 'lucide-react';
 import { Pill } from '@/ui/Pill';
 import { Button } from '@/ui/Button';
+import { Card } from '@/ui/Card';
+import { PageHeader } from '@/ui/PageHeader';
 import { LoadingPanel } from '@/components/LoadingPanel';
 import { TokenMeter } from '@/components/TokenMeter';
 import { Typewriter } from '@/components/Typewriter';
@@ -11,7 +13,6 @@ import { ApiError, type AdventureSettingsUpdateRequest } from '@/api-client';
 import {
   useAdventure,
   useAdventureStream,
-  useCreateBranch,
   useSubmitTurn,
 } from '@/hooks/useAdventures';
 import {
@@ -22,16 +23,18 @@ import {
 } from '@/hooks/useAdventureSettings';
 import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 import { useScenarioVersion } from '@/hooks/useScenarios';
-import { useBranchTree } from '@/hooks/useBranchTree';
+import { useBranchTree, useBranchTreeAccessors } from '@/hooks/useBranchTree';
 import { useRetryBranch, useUndoBranch, useRedoBranch } from '@/hooks/useBranchOps';
 import { useCharacter } from '@/hooks/useCharacter';
 import { useNpcRoster } from '@/hooks/useNpcRoster';
-import { useRecap } from '@/hooks/useRecap';
 import { useDiceClock } from '@/hooks/useDiceClock';
 import { useInventory } from '@/hooks/useInventory';
-import { BranchBar } from '@/features/play/BranchBar/BranchBar';
+import { ContextRail } from '@/features/play/ContextRail/ContextRail';
+import { ActionBar } from '@/features/play/ActionBar/ActionBar';
 import { ImagePanel } from '@/features/play/ImagePanel/ImagePanel';
+import { NextTurnPending, TurnPlaceholders } from '@/features/play/TurnPlaceholders/TurnPlaceholders';
 import { AdventureSettingsDrawer } from '@/features/settings/AdventureSettingsDrawer';
+import { HUD_SCROLL_STICKY_PX, HUD_STORY_MEASURE } from '@/features/play/hudLayout';
 import { TURN_FIXTURE, type SuggestedChoice } from '@/fixtures/data';
 import type { Quest } from '@/features/play/QuestLog/QuestLog';
 
@@ -84,6 +87,18 @@ export const ADVENTURE_PAGE_TESTIDS = {
   settingsButton: 'open-adventure-settings',
 } as const;
 
+/** Id of the visually hidden explanation for the inert archive link. */
+const ARCHIVE_UNAVAILABLE_HINT_ID = 'scene-archive-unavailable-hint';
+
+/**
+ * Why the archive affordance in the scene caption row is disabled.
+ * `ImageAsset` is `{id, url, width, height, alt}` — there is no archive
+ * route and no listing endpoint behind one, so the control is rendered
+ * `disabled` rather than linked to a URL that would 404.
+ */
+const ARCHIVE_UNAVAILABLE_REASON =
+  'The image archive does not exist yet: there is no archive route and no listing endpoint, so this link is disabled rather than pointing somewhere that would fail.';
+
 export default function AdventurePage(): ReactElement {
   const { id } = useParams<{ id: string }>();
   const adventureId = useMemo(() => {
@@ -102,7 +117,6 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   const navigate = useNavigate();
   const adventureQuery = useAdventure(adventureId);
   const submitTurn = useSubmitTurn(adventureId);
-  const createBranch = useCreateBranch(adventureId);
   const stream = useAdventureStream(adventureId, {
     // Re-subscribe after the player submits a turn so the SSE endpoint
     // picks up the latest narration. We use `lastTurnId ?? 0` to mean
@@ -115,8 +129,18 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   // continues to render even when an individual endpoint is offline.
   const characterQuery = useCharacter(adventureId);
   const npcQuery = useNpcRoster(adventureId);
-  const recapQuery = useRecap(adventureId);
+  // The recap is no longer fetched here: the "Memory & Lore" tab of the
+  // context rail mounts <MemoryPanel>, which fetches the recap itself.
+  // Keeping a second copy of this query here fired a redundant request on
+  // every mount and left the result unreachable.
   const branchTreeQuery = useBranchTree(adventureId);
+  // The branch tree is no longer *rendered* anywhere on the player view
+  // (no tree, no fork, no branch card), but it is still the only
+  // authoritative source of the `can_undo` / `can_redo` / `can_retry`
+  // flags that gate the surviving Undo / Redo / Retry actions in the
+  // bottom bar. `useBranchTreeAccessors` already reads them off the
+  // active node, so the disabled logic is unchanged.
+  const branchFlags = useBranchTreeAccessors(branchTreeQuery).flags;
   const adventureSettingsQuery = useAdventureSettings(adventureId);
   const playerSettingsQuery = usePlayerSettings();
   const retryBranch = useRetryBranch(adventureId);
@@ -147,10 +171,31 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
     adventureQuery.data?.scenario_version,
   );
 
+  // Choice buttons, in the order the real sources are authoritative:
+  //   1. the latest turn the API streamed (post-play suggestions),
+  //   2. the scenario version's opening choices (pre-play),
+  //   3. the offline fixture, and only when the API gave us neither.
+  // Computed before the loading / error early-returns so `onSubmit` can
+  // resolve the label of the option the player picked.
+  const turnChoices = stream.liveSuggestedChoices;
+  const openingChoices = scenarioVersionQuery.data?.suggested_choices ?? [];
+  const hasRealChoices = turnChoices.length > 0 || openingChoices.length > 0;
+  const choices: ReadonlyArray<SuggestedChoice> =
+    turnChoices.length > 0
+      ? turnChoices
+      : openingChoices.length > 0
+        ? openingChoices
+        : TURN_FIXTURE.suggested_choices;
+
   const [freeText, setFreeText] = useState('');
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
   const [lastTurnId, setLastTurnId] = useState<number | null>(null);
-  const [duplicateNotice, setDuplicateNotice] = useState<string | null>(null);
+  /**
+   * Verbatim text (or chosen-option label) of the turn the player last
+   * submitted. Rendered in the story column's player-action card. This
+   * is exactly what the player sent — nothing is reconstructed.
+   */
+  const [lastPlayerAction, setLastPlayerAction] = useState<string | null>(null);
   const [branchError, setBranchError] = useState<string | null>(null);
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const [settingsConflict, setSettingsConflict] = useState<string | null>(null);
@@ -184,12 +229,47 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
     setBranchError(null);
   }, [adventureQuery.data?.current_branch.id]);
 
+  // ---- Story-column scroll pinning -------------------------------------
+  // The story column is the only vertically scrolling region. When a new
+  // turn (or more of the current turn) arrives we follow it to the
+  // bottom — but only while the player is already at (or near) the
+  // bottom. A player who has scrolled up to re-read history is never
+  // yanked back.
+  const storyScrollRef = useRef<HTMLElement | null>(null);
+  const followStoryRef = useRef(true);
+
+  const onStoryScroll = useCallback(() => {
+    const el = storyScrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    followStoryRef.current = distanceFromBottom <= HUD_SCROLL_STICKY_PX;
+  }, []);
+
+  // Depends on the live turn id (a new turn, and therefore a new image
+  // job, starts here) and on the narration length (this turn is still
+  // streaming). `<ImagePanel>` owns its job/asset state internally, so
+  // a brand new asset is only observable through the turn that
+  // requested it.
+  const liveTurnId = stream.liveTurnId ?? undefined;
+  const narrationLength = stream.liveNarration.length;
+  useEffect(() => {
+    const el = storyScrollRef.current;
+    if (!el || !followStoryRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [liveTurnId, narrationLength, adventureId]);
+
   const onSubmit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      setDuplicateNotice(null);
       if (!adventureQuery.data) return;
       const branch = adventureQuery.data.current_branch;
+      // Echo the player's own words into the story column. Prefer the
+      // free text; when only a suggested option was picked, use that
+      // option's label so the card is never blank.
+      const choiceLabel = selectedChoiceId
+        ? (choices.find((c) => c.id === selectedChoiceId)?.label ?? null)
+        : null;
+      setLastPlayerAction(freeText.trim() !== '' ? freeText : choiceLabel);
       try {
         const turn = await submitTurn.mutateAsync({
           branch_id: branch.id,
@@ -208,25 +288,8 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
         }
       }
     },
-    [adventureQuery, submitTurn, selectedChoiceId, freeText],
+    [adventureQuery, choices, submitTurn, selectedChoiceId, freeText],
   );
-
-  const onFork = useCallback(async () => {
-    if (!adventureQuery.data) return;
-    const branch = adventureQuery.data.current_branch;
-    if (!lastTurnId) return;
-    try {
-      const branchRes = await createBranch.mutateAsync({
-        from_branch_id: branch.id,
-        from_turn_id: lastTurnId,
-      });
-      setDuplicateNotice(`Forked branch \u201C${branchRes.name}\u201D.`);
-    } catch (err) {
-      setDuplicateNotice(
-        err instanceof Error ? err.message : 'Could not fork the branch.',
-      );
-    }
-  }, [adventureQuery, createBranch, lastTurnId]);
 
   const onRetry = useCallback(async () => {
     setBranchError(null);
@@ -312,19 +375,6 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   }
 
   const adventure = adventureQuery.data;
-  // Choice buttons, in the order the real sources are authoritative:
-  //   1. the latest turn the API streamed (post-play suggestions),
-  //   2. the scenario version's opening choices (pre-play),
-  //   3. the offline fixture, and only when the API gave us neither.
-  const turnChoices = stream.liveSuggestedChoices;
-  const openingChoices = scenarioVersionQuery.data?.suggested_choices ?? [];
-  const hasRealChoices = turnChoices.length > 0 || openingChoices.length > 0;
-  const choices: ReadonlyArray<SuggestedChoice> =
-    turnChoices.length > 0
-      ? turnChoices
-      : openingChoices.length > 0
-        ? openingChoices
-        : TURN_FIXTURE.suggested_choices;
   const isSubmitting = submitTurn.isPending;
   const conflictError =
     submitTurn.error instanceof ApiError && submitTurn.error.status === 409;
@@ -344,7 +394,6 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   const isStreaming = stream.streaming;
   const streamInterrupted = stream.error !== null && !isStreaming;
   const sequenceNumber = stream.liveSequenceNumber;
-  const liveTurnId = stream.liveTurnId ?? undefined;
   // The starting state is a free-form record on the wire, so the
   // player-facing fields are read defensively (see `readStateLabel`).
   // Pure derivation off already-rendered values — cheap enough to
@@ -390,275 +439,374 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   // adds them we surface the first three as a static list so the panel
   // stays clickable.
 
-  const branchOpsPending = retryBranch.isPending || undoBranch.isPending || redoBranch.isPending;
-  const activeBranchId = branchTreeQuery.data?.active_branch_id ?? adventure.current_branch.id;
-  const branchTreeNodes = branchTreeQuery.data?.branches;
+  // ---- HUD frame -------------------------------------------------------
+  // Row 2 of the frame: the scrolling story column + the pinned rail.
+  // Row 3 (the action bar) and the settings drawer hang off the surface.
+  const branchOpsPending =
+    retryBranch.isPending || undoBranch.isPending || redoBranch.isPending;
 
   return (
-    <div data-testid={ADVENTURE_PAGE_TESTIDS.surface}>
-      <PageHeader
-        eyebrow={`Adventure #${adventure.id} · ${adventure.status}`}
-        title={adventure.title}
-        description={`Branch ${adventure.current_branch.name} (depth ${adventure.current_branch.depth}, version ${adventure.current_branch.version}).`}
-        actions={
-          <>
-            <Link to="/scenarios">
-              <Button intent="ghost">Library</Button>
-            </Link>
-            <Button
-              intent="ghost"
-              onClick={() => setDrawerOpen(true)}
-              aria-label="Open per-adventure settings"
-              data-testid={ADVENTURE_PAGE_TESTIDS.settingsButton}
-            >
-              Settings
-            </Button>
-            <Button intent="secondary" disabled={!lastTurnId || createBranch.isPending} onClick={() => void onFork()}>
-              {createBranch.isPending ? 'Forking\u2026' : 'Fork branch'}
-            </Button>
-          </>
-        }
-      />
-
-      {duplicateNotice && (
-        <p role="status" aria-live="polite" style={noticeStyle}>
-          {duplicateNotice}
-        </p>
-      )}
-
-      {streamInterrupted && stream.error && (
-        <p role="alert" data-testid="stream-interrupted" style={errorPanel}>
-          Stream interrupted: {stream.error.message}
-        </p>
-      )}
-
-      <BranchBar
-        tree={branchTreeNodes}
-        activeBranchId={activeBranchId}
-        isPending={branchOpsPending}
-        error={branchError ? { message: branchError } : null}
-        onRetry={() => void onRetry()}
-        onUndo={() => void onUndo()}
-        onRedo={() => void onRedo()}
-      />
-
-      <article
-        data-testid={ADVENTURE_PAGE_TESTIDS.liveRegion}
-        style={{ ...cardStyle, ...previewStyle }}
-        aria-live="polite"
-      >
-        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Pill
-            intent="muted"
-            title={
-              sequenceNumber === null
-                ? 'This branch has no turns yet'
-                : `Sequence #${sequenceNumber}`
-            }
-          >
-            {sequenceNumber === null ? 'No turn yet' : `Turn #${sequenceNumber}`}
-          </Pill>
-          {isStreaming && (
-            <Pill intent="info" title="Live stream is open">
-              Streaming…
-            </Pill>
-          )}
-          <Pill intent="muted" title={`Theme: ${resolvedTheme}`}>
-            Theme: {String(resolvedTheme)}
-          </Pill>
-          <Pill intent="muted" title={`Narration verbosity: ${String(resolvedVerbosity)}`}>
-            Verbosity: {String(resolvedVerbosity)}
-          </Pill>
-        </div>
-        <div className="prose" style={{ margin: 0, minHeight: '4lh' }}>
-          {isStreaming || hasLiveNarration ? (
-            <Typewriter
-              text={hasLiveNarration ? narration : ''}
-              key={`turn-${liveTurnId ?? 'pending'}`}
-              ariaLabel={sequenceNumber === null ? 'Narration' : `Turn ${sequenceNumber} narration`}
-            />
-          ) : showFixtureNarration ? (
-            narration
-          ) : (
-            'No narration yet — this branch has no turns. Pick one of the opening choices or describe what you do.'
-          )}
-        </div>
-        <TokenMeter usage={stream.usage} />
-
-        {(showFixtureNarration || !hasRealChoices) && (
-          <p role="status" data-testid="fixture-fallback" style={noticeStyle}>
-            Offline fixture copy — the API returned no turn narration and no scenario choices for
-            this branch.
-          </p>
-        )}
-
-        <div
-          aria-label="Suggested choices"
-          style={{
-            display: 'grid',
-            gap: 'var(--space-2)',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          }}
+    <div data-testid={ADVENTURE_PAGE_TESTIDS.surface} style={surfaceStyle}>
+      <div style={bodyRowStyle}>
+        <section
+          aria-label="Story"
+          data-testid="adventure-story-column"
+          ref={storyScrollRef}
+          onScroll={onStoryScroll}
+          style={storyColumnStyle}
         >
-          {choices.map((choice) => {
-            const intent =
-              selectedChoiceId === choice.id
-                ? 'primary'
-                : (CHOICE_INTENT[choice.id.split('-')[1] ?? ''] ?? 'secondary');
-            // The API's choices carry a `description`; Button has no
-            // `title` prop, so the hint rides along as a described-by
-            // caption instead of being dropped.
-            const hintId = `choice-hint-${choice.id}`;
-            return (
-              <div key={choice.id} style={{ display: 'grid', gap: 'var(--space-1)' }}>
+          <div style={storyMeasureStyle}>
+            <div style={storyHeaderStyle}>
+              <div style={{ minWidth: 0 }}>
+                <p style={eyebrowStyle}>
+                  Adventure #{adventure.id} · {adventure.status}
+                </p>
+                <h1 style={titleStyle}>{adventure.title}</h1>
+              </div>
+              <div style={storyHeaderActionsStyle}>
+                {/* A plain router link rather than a <Button> inside a
+                    <Link>: nesting interactive elements is an a11y error
+                    and this keeps one focusable control per destination. */}
+                <Link to="/scenarios" style={ghostLinkStyle}>
+                  Library
+                </Link>
                 <Button
-                  intent={intent}
-                  onClick={() => setSelectedChoiceId(choice.id)}
-                  aria-pressed={selectedChoiceId === choice.id}
-                  aria-describedby={choice.description ? hintId : undefined}
+                  intent="ghost"
+                  size="sm"
+                  onClick={() => setDrawerOpen(true)}
+                  aria-label="Open per-adventure settings"
+                  data-testid={ADVENTURE_PAGE_TESTIDS.settingsButton}
                 >
-                  {choice.label}
+                  Settings
                 </Button>
-                {choice.description && (
-                  <span
-                    id={hintId}
-                    style={{ fontSize: 'var(--text-xs)', color: 'var(--color-foreground-muted)' }}
-                  >
-                    {choice.description}
-                  </span>
+              </div>
+            </div>
+
+            {branchError && (
+              <p role="alert" data-testid="branch-error" style={errorPanel}>
+                {branchError}
+              </p>
+            )}
+            {streamInterrupted && stream.error && (
+              <p role="alert" data-testid="stream-interrupted" style={errorPanel}>
+                Stream interrupted: {stream.error.message}
+              </p>
+            )}
+            {conflictError && (
+              <p role="alert" style={errorPanel}>
+                {submitTurn.error?.message ??
+                  'The branch was updated elsewhere. Pulling the latest version\u2026'}
+              </p>
+            )}
+            {submitTurn.error && !conflictError && (
+              <p role="alert" style={errorPanel}>
+                {submitTurn.error.message}
+              </p>
+            )}
+            {settingsConflict && (
+              <p role="alert" data-testid="settings-conflict" style={noticeStyle}>
+                {settingsConflict}
+                <Button
+                  intent="ghost"
+                  size="sm"
+                  onClick={() => setSettingsConflict(null)}
+                  aria-label="Dismiss settings conflict notice"
+                >
+                  Dismiss
+                </Button>
+              </p>
+            )}
+
+            {/* 1 — Session / prologue card. Built only from data the
+                adventure and its scenario version actually carry; the
+                adventure resource has no `description` field, so none
+                is invented here. */}
+            <Card
+              title="Session"
+              tone="muted"
+              subtitle={
+                <span style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                  <Pill intent="neutral" title="Scenario slug">
+                    {adventure.scenario_slug}
+                  </Pill>
+                  <Pill intent="muted" title="Scenario version">
+                    v{adventure.scenario_version}
+                  </Pill>
+                  {scenarioVersionQuery.data?.manifest.length_estimate_minutes != null && (
+                    <Pill intent="muted" title="Estimated session length">
+                      ~{scenarioVersionQuery.data.manifest.length_estimate_minutes} min
+                    </Pill>
+                  )}
+                </span>
+              }
+            >
+              {(startingState.location !== null ||
+                startingState.character !== null ||
+                startingState.inventory.length > 0 ||
+                startingState.npcs.length > 0) && (
+                <section
+                  aria-label="Starting state"
+                  data-testid={ADVENTURE_PAGE_TESTIDS.worldGrid}
+                  style={worldGridStyle}
+                >
+                  {startingState.location !== null && (
+                    <div style={stateCardStyle}>
+                      <h2 style={stateHeadingStyle}>Location</h2>
+                      <Pill intent="neutral" title={startingState.location}>
+                        {startingState.location}
+                      </Pill>
+                    </div>
+                  )}
+                  {startingState.character !== null && (
+                    <div style={stateCardStyle}>
+                      <h2 style={stateHeadingStyle}>You are</h2>
+                      <Pill intent="muted" title={startingState.character}>
+                        {startingState.character}
+                      </Pill>
+                    </div>
+                  )}
+                  {startingState.inventory.length > 0 && (
+                    <div style={stateCardStyle}>
+                      <h2 style={stateHeadingStyle}>Carrying</h2>
+                      <ul style={stateListStyle}>
+                        {startingState.inventory.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {startingState.npcs.length > 0 && (
+                    <div style={stateCardStyle}>
+                      <h2 style={stateHeadingStyle}>People</h2>
+                      <ul style={stateListStyle}>
+                        {startingState.npcs.map((npc) => (
+                          <li key={npc}>{npc}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </section>
+              )}
+              {(scenarioVersionQuery.data?.manifest.content_warnings.length ?? 0) > 0 && (
+                <p style={contentWarningStyle}>
+                  Content warnings:{' '}
+                  {scenarioVersionQuery.data?.manifest.content_warnings.join(', ')}
+                </p>
+              )}
+            </Card>
+
+            {/* 1.5 — Inert earlier-turn slots. There is no turns
+                endpoint, so the column would otherwise hold a single
+                card and stop reading as a timeline. These are
+                placeholders only: no prose, not focusable, no request.
+                See `<TurnPlaceholders>`. */}
+            <TurnPlaceholders count={3} />
+
+            {/* 2 — Game Master card: the live narration beat. */}
+            <article
+              data-testid={ADVENTURE_PAGE_TESTIDS.liveRegion}
+              style={{ ...cardStyle, ...previewStyle }}
+              aria-live="polite"
+            >
+              <div style={metaRowStyle}>
+                <Pill intent="neutral" title="Who is narrating this turn">
+                  Game Master
+                </Pill>
+                <Pill
+                  intent="muted"
+                  title={
+                    sequenceNumber === null
+                      ? 'This branch has no turns yet'
+                      : `Sequence #${sequenceNumber}`
+                  }
+                >
+                  {sequenceNumber === null ? 'No turn yet' : `Turn #${sequenceNumber}`}
+                </Pill>
+                {isStreaming && (
+                  <Pill intent="info" title="Live stream is open">
+                    Streaming…
+                  </Pill>
+                )}
+                <Pill intent="muted" title={`Theme: ${resolvedTheme}`}>
+                  Theme: {String(resolvedTheme)}
+                </Pill>
+                <Pill intent="muted" title={`Narration verbosity: ${String(resolvedVerbosity)}`}>
+                  Verbosity: {String(resolvedVerbosity)}
+                </Pill>
+              </div>
+              <div className="prose" style={{ margin: 0, minHeight: '4lh' }}>
+                {isStreaming || hasLiveNarration ? (
+                  <Typewriter
+                    text={hasLiveNarration ? narration : ''}
+                    key={`turn-${liveTurnId ?? 'pending'}`}
+                    ariaLabel={
+                      sequenceNumber === null ? 'Narration' : `Turn ${sequenceNumber} narration`
+                    }
+                  />
+                ) : showFixtureNarration ? (
+                  narration
+                ) : (
+                  'No narration yet — this branch has no turns. Pick one of the opening choices or describe what you do.'
                 )}
               </div>
-            );
-          })}
-        </div>
-      </article>
+              <TokenMeter usage={stream.usage} />
 
-      {(startingState.location !== null ||
-        startingState.character !== null ||
-        startingState.inventory.length > 0 ||
-        startingState.npcs.length > 0) && (
-        <section
-          aria-label="Starting state"
-          data-testid={ADVENTURE_PAGE_TESTIDS.worldGrid}
-          style={worldGridStyle}
-        >
-          {startingState.location !== null && (
-            <div style={stateCardStyle}>
-              <h2 style={stateHeadingStyle}>Location</h2>
-              <Pill intent="neutral" title={startingState.location}>
-                {startingState.location}
-              </Pill>
-            </div>
-          )}
-          {startingState.character !== null && (
-            <div style={stateCardStyle}>
-              <h2 style={stateHeadingStyle}>You are</h2>
-              <Pill intent="muted" title={startingState.character}>
-                {startingState.character}
-              </Pill>
-            </div>
-          )}
-          {startingState.inventory.length > 0 && (
-            <div style={stateCardStyle}>
-              <h2 style={stateHeadingStyle}>Carrying</h2>
-              <ul style={stateListStyle}>
-                {startingState.inventory.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {startingState.npcs.length > 0 && (
-            <div style={stateCardStyle}>
-              <h2 style={stateHeadingStyle}>People</h2>
-              <ul style={stateListStyle}>
-                {startingState.npcs.map((npc) => (
-                  <li key={npc}>{npc}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-      )}
+              {(showFixtureNarration || !hasRealChoices) && (
+                <p role="status" data-testid="fixture-fallback" style={noticeStyle}>
+                  Offline fixture copy — the API returned no turn narration and no scenario choices
+                  for this branch.
+                </p>
+              )}
 
-      {conflictError && (
-        <p role="alert" style={errorPanel}>
-          {submitTurn.error?.message ?? 'The branch was updated elsewhere. Pulling the latest version\u2026'}
-        </p>
-      )}
-      {submitTurn.error && !conflictError && (
-        <p role="alert" style={errorPanel}>
-          {submitTurn.error.message}
-        </p>
-      )}
+              <div
+                aria-label="Suggested choices"
+                style={{
+                  display: 'grid',
+                  gap: 'var(--space-2)',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                }}
+              >
+                {choices.map((choice) => {
+                  const intent =
+                    selectedChoiceId === choice.id
+                      ? 'primary'
+                      : (CHOICE_INTENT[choice.id.split('-')[1] ?? ''] ?? 'secondary');
+                  // The API's choices carry a `description`; Button has no
+                  // `title` prop, so the hint rides along as a described-by
+                  // caption instead of being dropped.
+                  const hintId = `choice-hint-${choice.id}`;
+                  return (
+                    <div key={choice.id} style={{ display: 'grid', gap: 'var(--space-1)' }}>
+                      <Button
+                        intent={intent}
+                        onClick={() => setSelectedChoiceId(choice.id)}
+                        aria-pressed={selectedChoiceId === choice.id}
+                        aria-describedby={choice.description ? hintId : undefined}
+                      >
+                        {choice.label}
+                      </Button>
+                      {choice.description && (
+                        <span
+                          id={hintId}
+                          style={{ fontSize: 'var(--text-xs)', color: 'var(--color-foreground-muted)' }}
+                        >
+                          {choice.description}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
 
-      <section style={{ marginTop: 'var(--space-5)' }}>
-        <h2 style={{ fontSize: 'var(--text-lg)', fontFamily: 'var(--font-serif)' }}>Composer</h2>
-        <form
-          onSubmit={(event) => void onSubmit(event)}
-          style={composerStyle}
-          aria-describedby="composer-help"
-        >
-          <label htmlFor="composer" style={{ fontWeight: 'var(--weight-medium)' }}>
-            Say or do something
-          </label>
-          <textarea
-            id="composer"
-            name="composer"
-            rows={3}
-            placeholder="Describe what you do\u2026"
-            value={freeText}
-            onChange={(event) => setFreeText(event.target.value)}
-            maxLength={2000}
-            style={{
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: 'var(--space-2) var(--space-3)',
-              background: 'var(--color-surface)',
-              color: 'var(--color-foreground)',
-              fontFamily: 'var(--font-sans)',
-              fontSize: 'var(--text-base)',
-              resize: 'vertical',
-              minHeight: 'calc(var(--control-touch-min) * 2)',
-            }}
-          />
-          <span id="composer-help" style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-xs)' }}>
-            Submitting a turn requires a chosen option or free text. We attach an idempotency
-            key so retries do not duplicate your turn.
-          </span>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button
-              intent="primary"
-              type="submit"
-              disabled={isSubmitting || (!selectedChoiceId && freeText.trim().length === 0)}
-            >
-              {isSubmitting ? 'Submitting\u2026' : 'Submit turn'}
-            </Button>
+            {/* 3 — Player action card: the text this client actually
+                submitted on the previous turn. */}
+            {lastPlayerAction !== null && (
+              <div data-testid="player-action-card" style={playerActionStyle}>
+                <span style={playerActionLabelStyle}>You</span>
+                <p style={playerActionTextStyle}>{lastPlayerAction}</p>
+              </div>
+            )}
+
+            {/* 4 — Visual. `<ImagePanel>` owns the image job, so it is
+                asked to render the design's caption row around the one
+                genuine Regenerate handler: an honest scene label on the
+                left, Regenerate and the (inert) archive affordance on
+                the right. `<ImagePanel>` still owns Retry and the
+                carousel, which are reused rather than duplicated. */}
+            <figure style={visualFigureStyle}>
+              <ImagePanel
+                adventureId={adventure.id}
+                branchId={adventure.current_branch.id}
+                turnId={liveTurnId}
+                title="Scene"
+                renderActions={({ regenerate, isLoading, isDisabled }) => (
+                  /* A plain <div>, not a <figcaption>: `<ImagePanel>`
+                     renders this inside its own `<Card>` (an
+                     `<article><div>`), so a <figcaption> here would be
+                     nested three levels below the enclosing <figure>,
+                     which is invalid. The label text still reads in
+                     document order inside the "Scene" card. */
+                  <div style={visualCaptionStyle}>
+                    <span style={visualCaptionLabelStyle}>
+                      <ImageIcon size={12} strokeWidth={1.75} aria-hidden="true" />
+                      {liveTurnId === undefined
+                        ? 'No rendered scene yet — generate one from the latest turn.'
+                        : `Illustration for turn #${stream.liveSequenceNumber ?? liveTurnId}`}
+                    </span>
+                    <span style={visualCaptionActionsStyle}>
+                      <Button
+                        intent="secondary"
+                        size="sm"
+                        disabled={isDisabled}
+                        onClick={regenerate}
+                        data-testid="image-regenerate"
+                        aria-label="Regenerate image for the current turn"
+                      >
+                        {isLoading ? 'Regenerating\u2026' : 'Regenerate'}
+                      </Button>
+                      {/* Inert. There is no image-archive route and no
+                          archive listing behind one, so this is a real
+                          `disabled` button rather than a link that would
+                          404 — tabbing past it announces the reason. */}
+                      <span
+                        title={ARCHIVE_UNAVAILABLE_REASON}
+                        style={{ display: 'inline-flex' }}
+                      >
+                        <Button
+                          intent="ghost"
+                          size="sm"
+                          disabled
+                          aria-label="Image archive"
+                          aria-describedby={ARCHIVE_UNAVAILABLE_HINT_ID}
+                        >
+                          <Archive size={14} strokeWidth={1.75} aria-hidden="true" />
+                          Image archive
+                        </Button>
+                      </span>
+                      <span id={ARCHIVE_UNAVAILABLE_HINT_ID} style={visuallyHiddenStyle}>
+                        {ARCHIVE_UNAVAILABLE_REASON}
+                      </span>
+                    </span>
+                  </div>
+                )}
+              />
+            </figure>
+
+            {/* 5 — Trailing edge of the timeline. Inert; see
+                `<NextTurnPending>`. */}
+            <NextTurnPending />
           </div>
-        </form>
-      </section>
+        </section>
 
-      <section style={{ marginTop: 'var(--space-5)' }} aria-label="Visuals">
-        <ImagePanel
-          adventureId={adventure.id}
-          branchId={adventure.current_branch.id}
-          turnId={liveTurnId}
+        <ContextRail
+          adventureId={adventureId}
+          character={characterQuery.data}
+          characterError={characterQuery.error ?? null}
+          isCharacterLoading={characterQuery.isPending && !characterQuery.data}
+          npcs={npcQuery.data}
+          npcError={npcQuery.error ?? null}
+          isNpcLoading={npcQuery.isPending && !npcQuery.data}
+          mechanicEvent={resolvedMechanicEvent}
+          inventoryItems={inventory.items}
+          inventoryTotals={inventory.totals}
         />
-      </section>
+      </div>
 
-      {settingsConflict && (
-        <p role="alert" data-testid="settings-conflict" style={noticeStyle}>
-          {settingsConflict}
-          <Button
-            intent="ghost"
-            size="sm"
-            onClick={() => setSettingsConflict(null)}
-            aria-label="Dismiss settings conflict notice"
-          >
-            Dismiss
-          </Button>
-        </p>
-      )}
+      <ActionBar
+        value={freeText}
+        onValueChange={setFreeText}
+        onSubmit={(event) => void onSubmit(event)}
+        isSubmitting={isSubmitting}
+        isSubmitDisabled={!selectedChoiceId && freeText.trim().length === 0}
+        onUndo={() => void onUndo()}
+        onRedo={() => void onRedo()}
+        onRetry={() => void onRetry()}
+        canUndo={branchFlags.canUndo}
+        canRedo={branchFlags.canRedo}
+        canRetry={branchFlags.canRetry}
+        isBranchOpsPending={branchOpsPending}
+      />
 
       {isDrawerOpen && (
         <AdventureSettingsDrawer
@@ -705,21 +853,203 @@ function buildTypographyPreviewStyle(
   };
 }
 
+// ---- HUD frame styles --------------------------------------------------
+// The surface is a three-row frame that never lets the document scroll:
+// the top bar and the bottom action bar are siblings of `bodyRowStyle`
+// and therefore always on screen; only the story column and the rail
+// scroll.
+const surfaceStyle: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+};
+
+const bodyRowStyle: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'row',
+  alignItems: 'stretch',
+  overflow: 'hidden',
+};
+
+const storyColumnStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  minHeight: 0,
+  overflowY: 'auto',
+  padding: 'var(--space-4)',
+  display: 'flex',
+  justifyContent: 'center',
+};
+
+// Comfortable reading measure for the serif narration, centred in the
+// column (the `prose` utility caps itself at 60ch; the column is the
+// wider of the two so the timeline cards get the full measure).
+const storyMeasureStyle: CSSProperties = {
+  width: '100%',
+  maxWidth: HUD_STORY_MEASURE,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-3)',
+};
+
+const storyHeaderStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 'var(--space-3)',
+  flexWrap: 'wrap',
+  paddingBottom: 'var(--space-2)',
+  borderBottom: '1px solid var(--color-border)',
+};
+
+const storyHeaderActionsStyle: CSSProperties = {
+  display: 'flex',
+  gap: 'var(--space-2)',
+  flexWrap: 'wrap',
+};
+
+// Matches the ghost `<Button>` next to it without nesting one control
+// inside another.
+const ghostLinkStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  minHeight: 'var(--control-touch-min)',
+  padding: 'var(--space-2) var(--space-3)',
+  border: '1px solid transparent',
+  borderRadius: 'var(--radius-md)',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--text-sm)',
+  fontWeight: 'var(--weight-medium)',
+  textDecoration: 'none',
+  color: 'var(--color-foreground)',
+};
+
+const eyebrowStyle: CSSProperties = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--text-xs)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  color: 'var(--color-foreground-subtle)',
+};
+
+const titleStyle: CSSProperties = {
+  fontFamily: 'var(--font-serif)',
+  fontSize: 'var(--text-xl)',
+  fontWeight: 'var(--weight-semibold)',
+  lineHeight: 'var(--leading-tight)',
+  margin: 0,
+};
+
+const metaRowStyle: CSSProperties = {
+  display: 'flex',
+  gap: 'var(--space-2)',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+};
+
+// Player-action card: brass left accent bar + mono text, so the player's
+// own words never read as narration.
+const playerActionStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-1)',
+  border: '1px solid var(--color-border)',
+  borderLeft: '3px solid var(--color-primary)',
+  borderRadius: 'var(--radius-md)',
+  background: 'var(--color-surface-muted)',
+  padding: 'var(--space-3) var(--space-4)',
+};
+
+const playerActionLabelStyle: CSSProperties = {
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--text-xs)',
+  fontWeight: 'var(--weight-semibold)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  color: 'var(--color-primary)',
+};
+
+const playerActionTextStyle: CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-sm)',
+  color: 'var(--color-foreground)',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'anywhere',
+};
+
+const visualFigureStyle: CSSProperties = {
+  margin: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-2)',
+};
+
+const visualCaptionStyle: CSSProperties = {
+  display: 'flex',
+  gap: 'var(--space-2)',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  justifyContent: 'space-between',
+  width: '100%',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--color-foreground-muted)',
+};
+
+// Left-hand scene label: glyph + honest text. `ImageAsset` carries no
+// scene name, so this never invents one.
+const visualCaptionLabelStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 'var(--space-1)',
+  minWidth: 0,
+};
+
+const visualCaptionActionsStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 'var(--space-2)',
+  flexWrap: 'wrap',
+  marginLeft: 'auto',
+};
+
+const visuallyHiddenStyle: CSSProperties = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: 0,
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
+
+const contentWarningStyle: CSSProperties = {
+  marginTop: 'var(--space-3)',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--color-warning)',
+};
+
 const cardStyle: CSSProperties = {
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-md)',
-  padding: 'var(--space-5) var(--space-6)',
+  padding: 'var(--space-4) var(--space-5)',
   display: 'flex',
   flexDirection: 'column',
-  gap: 'var(--space-4)',
-  marginTop: 'var(--space-4)',
+  gap: 'var(--space-3)',
 };
 
 const worldGridStyle: CSSProperties = {
   display: 'grid',
-  gap: 'var(--space-4)',
-  marginTop: 'var(--space-5)',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: 'var(--space-3)',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
 };
 
 const stateCardStyle: CSSProperties = {
@@ -748,15 +1078,6 @@ const stateListStyle: CSSProperties = {
   flexWrap: 'wrap',
   gap: 'var(--space-1)',
   fontSize: 'var(--text-sm)',
-};
-
-const composerStyle: CSSProperties = {
-  display: 'grid',
-  gap: 'var(--space-3)',
-  background: 'var(--color-surface-muted)',
-  padding: 'var(--space-4)',
-  borderRadius: 'var(--radius-md)',
-  marginTop: 'var(--space-3)',
 };
 
 const errorPanel: CSSProperties = {
