@@ -1,20 +1,20 @@
 /**
- * `<AdventureSettingsDrawer>` — per-adventure settings overrides (S4-T06).
+ * `<AdventureSettingsDrawer>` — the per-adventure settings surface.
  *
- * Renders one row per setting group with three affordances:
- *   - Inherit (use the user default)
- *   - Override (custom value)
- *   - Reset (scenario default; the locked value when the scenario forbids
- *     overriding a particular control)
+ * Legitimately a different *surface* from `<UserSettingsPage>` (adventure
+ * scope vs. global scope) but not a different *model*: both render from the
+ * single catalogue in `./settingsGroups` through `<SettingsGroupRow>`, so
+ * the Inherited / Locked / Reset affordance is implemented once.
  *
- * The drawer fires a live `onChange` callback so the parent can apply the
- * resolved value to its preview surface without waiting for the save
- * mutation to settle.
+ * The row set is server-driven — `AdventureSettingsResource.groups` is the
+ * resolver's output — so this surface can show a `state` / `source` /
+ * `locked_reason` the catalogue does not know about. A locked group renders
+ * its control disabled with the server's reason; the player is not offered
+ * an edit that the server would reject.
  */
 import type { CSSProperties, ReactElement } from 'react';
 import { useId, useMemo, useState } from 'react';
 import { Button } from '@/ui/Button';
-import { Pill } from '@/ui/Pill';
 import { Card } from '@/ui/Card';
 import type {
   AdventureSettingGroup,
@@ -22,24 +22,31 @@ import type {
   AdventureSettingsUpdateRequest,
   SettingGroupState,
 } from '@/api-client';
-import { ApiError, type PlayerSettingsResource } from '@/api-client';
+import { ApiError } from '@/api-client';
+import { SettingsGroupRow } from './SettingsGroupRow';
 import {
-  PLAYER_SETTINGS_GROUPS,
+  coerceSettingValue,
+  findPlayerSettingsGroup,
+  isInheritedValue,
   type PlayerSettingsGroupDefinition,
+  type SettingValue,
 } from './settingsGroups';
 
 export interface AdventureSettingsDrawerProps {
   readonly adventureId: number;
   readonly branchId: number;
   readonly adventureSettings: AdventureSettingsResource | undefined;
-  readonly userSettings: PlayerSettingsResource | undefined;
+  readonly userSettings: Record<string, SettingValue> | undefined;
   readonly isLoading: boolean;
   readonly error: ApiError | null;
-  readonly onChange?: (groupId: string, value: string | number | boolean) => void;
+  readonly onChange?: (groupId: string, value: SettingValue) => void;
   readonly onSave: (body: AdventureSettingsUpdateRequest) => void;
   readonly onClose: () => void;
   readonly saving: boolean;
 }
+
+type DraftEntry = { state: SettingGroupState; value: SettingValue };
+type Draft = Readonly<Record<string, DraftEntry>>;
 
 const drawerStyle: CSSProperties = {
   position: 'fixed',
@@ -62,51 +69,40 @@ const panelStyle: CSSProperties = {
   gap: 'var(--space-3)',
 };
 
-const rowStyle: CSSProperties = {
+const listStyle: CSSProperties = {
+  listStyle: 'none',
+  padding: 0,
+  margin: 0,
   display: 'grid',
-  gridTemplateColumns: '1fr auto',
   gap: 'var(--space-2)',
-  alignItems: 'center',
-  padding: 'var(--space-2) 0',
-  borderBottom: '1px dashed var(--color-border)',
-};
-
-const statePillIntent: Record<SettingGroupState, 'success' | 'info' | 'warning' | 'muted'> = {
-  inherit: 'muted',
-  override: 'info',
-  reset: 'warning',
-  locked: 'warning',
 };
 
 const sourceLabel: Record<AdventureSettingGroup['source'], string> = {
   user: 'Inherited from user defaults',
   adventure: 'Adventure override',
-  scenario: 'Scenario default (locked)',
+  scenario: 'Scenario default',
 };
 
-const controlStyle: CSSProperties = {
-  padding: 'var(--space-1) var(--space-2)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-sm)',
-  background: 'var(--color-surface)',
-  color: 'var(--color-foreground)',
-  fontFamily: 'var(--font-sans)',
-  fontSize: 'var(--text-sm)',
-  minHeight: 'var(--control-touch-min)',
-  minWidth: 120,
-};
-
-function findGroupDef(id: string): PlayerSettingsGroupDefinition | undefined {
-  return PLAYER_SETTINGS_GROUPS.find((g) => g.id === id);
-}
-
-function coerce(group: PlayerSettingsGroupDefinition, raw: unknown): string | number | boolean {
-  if (typeof group.defaultValue === 'boolean') return Boolean(raw);
-  if (typeof group.defaultValue === 'number') {
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : group.defaultValue;
-  }
-  return String(raw);
+/**
+ * A server group with no catalogue entry still needs a definition to render
+ * from. Synthesise one from the server's own label / options so an unknown
+ * key degrades to a read-only row rather than crashing the drawer.
+ */
+function definitionFor(group: AdventureSettingGroup): PlayerSettingsGroupDefinition {
+  const known = findPlayerSettingsGroup(group.id);
+  if (known) return known;
+  return {
+    id: group.id,
+    label: group.label,
+    domain: 'play',
+    description: '',
+    defaultValue: group.effective_value,
+    options: group.options?.map((value) => ({ value, label: value })),
+    document: 'player-defaults',
+    scope: 'user',
+    affectsEngine: false,
+    previewable: false,
+  };
 }
 
 export function AdventureSettingsDrawer({
@@ -122,17 +118,14 @@ export function AdventureSettingsDrawer({
   saving,
 }: AdventureSettingsDrawerProps): ReactElement {
   const titleId = useId();
-  const [draft, setDraft] = useState<Record<string, { state: SettingGroupState; value: string | number | boolean }>>({});
+  const [draft, setDraft] = useState<Draft>({});
 
-  // Initialise the draft from the server payload. Use the existing group
-  // state so users see the override they previously set.
+  // Initialise the draft from the server payload so users see the override
+  // they previously set.
   //
   // R23b P0-1: a partial server payload can omit `groups` (loading state,
   // 404 fallback, optimistic update in flight). Iterating undefined throws
   // `groups is not iterable` and unmounts the page via the ErrorBoundary.
-  // Treat missing groups as an empty array — the render path below already
-  // early-returns when `adventureSettings` is undefined, so the empty list
-  // will be a no-op render here.
   useMemo(() => {
     if (!adventureSettings) return;
     const groups = adventureSettings.groups ?? [];
@@ -141,48 +134,42 @@ export function AdventureSettingsDrawer({
       // selector can fire before the real payload arrives.
       return;
     }
-    const next: typeof draft = {};
+    const next: Record<string, DraftEntry> = {};
     for (const group of groups) {
-      const value: string | number | boolean =
+      const value: SettingValue =
         group.state === 'override' && group.value !== null
-          ? (group.value as string | number | boolean)
-          : group.effective_value;
-      next[group.id] = {
-        state: group.state,
-        value,
-      };
+          ? (group.value as SettingValue)
+          : (group.effective_value as SettingValue);
+      next[group.id] = { state: group.state, value };
     }
     setDraft(next);
   }, [adventureSettings]);
 
-  const handleInherit = (id: string) => {
-    const userValue = userSettings?.[id as keyof PlayerSettingsResource];
-    const def = findGroupDef(id);
-    const value = userValue ?? def?.defaultValue ?? '';
-    setDraft((prev) => ({ ...prev, [id]: { state: 'inherit', value } }));
-    onChange?.(id, coerce(def ?? { defaultValue: value } as PlayerSettingsGroupDefinition, value));
+  const handleInherit = (group: PlayerSettingsGroupDefinition) => {
+    const userValue = userSettings?.[group.id];
+    const value = userValue ?? group.defaultValue;
+    setDraft((prev) => ({ ...prev, [group.id]: { state: 'inherit', value } }));
+    onChange?.(group.id, coerceSettingValue(group, value));
   };
 
-  const handleReset = (id: string) => {
-    const def = findGroupDef(id);
-    const value = def?.defaultValue ?? '';
-    setDraft((prev) => ({ ...prev, [id]: { state: 'reset', value } }));
-    onChange?.(id, coerce(def ?? { defaultValue: value } as PlayerSettingsGroupDefinition, value));
+  const handleReset = (group: PlayerSettingsGroupDefinition) => {
+    setDraft((prev) => ({ ...prev, [group.id]: { state: 'reset', value: group.defaultValue } }));
+    onChange?.(group.id, coerceSettingValue(group, group.defaultValue));
   };
 
-  const handleOverride = (id: string, value: string | number | boolean) => {
-    setDraft((prev) => ({ ...prev, [id]: { state: 'override', value } }));
-    onChange?.(id, value);
+  const handleOverride = (group: PlayerSettingsGroupDefinition, value: SettingValue) => {
+    setDraft((prev) => ({ ...prev, [group.id]: { state: 'override', value } }));
+    onChange?.(group.id, value);
   };
 
-  const buildBody = (): AdventureSettingsUpdateRequest => {
-    const groups = Object.entries(draft).map(([id, entry]) => ({
+  const buildBody = (): AdventureSettingsUpdateRequest => ({
+    branch_id: branchId,
+    groups: Object.entries(draft).map(([id, entry]) => ({
       id,
       state: entry.state,
       value: entry.state === 'override' ? entry.value : null,
-    }));
-    return { branch_id: branchId, groups };
-  };
+    })),
+  });
 
   const handleSave = () => onSave(buildBody());
 
@@ -213,7 +200,9 @@ export function AdventureSettingsDrawer({
   return (
     <div style={drawerStyle} role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div style={panelStyle}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <header
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-2)' }}
+        >
           <h2 id={titleId} style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-lg)', margin: 0 }}>
             Adventure settings
           </h2>
@@ -224,85 +213,62 @@ export function AdventureSettingsDrawer({
         <p style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-xs)' }}>
           Adventure #{adventureId} · branch #{branchId}
         </p>
+
         <Card title="Effective settings" subtitle="What your player will see in this adventure">
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 'var(--space-2)' }}>
-            {(adventureSettings.groups ?? []).map((group) => {
-              const def = findGroupDef(group.id);
-              const entry = draft[group.id] ?? {
-                state: group.state,
-                value: group.state === 'override' ? group.value : group.effective_value,
+          <ul style={listStyle}>
+            {(adventureSettings.groups ?? []).map((serverGroup) => {
+              const def = definitionFor(serverGroup);
+              const entry = draft[serverGroup.id] ?? {
+                state: serverGroup.state,
+                value:
+                  serverGroup.state === 'override'
+                    ? (serverGroup.value as SettingValue)
+                    : (serverGroup.effective_value as SettingValue),
               };
+              const locked = serverGroup.state === 'locked';
               const overridden = entry.state === 'override';
+
               return (
-                <li key={group.id} style={rowStyle} data-testid={`adventure-setting-${group.id}`}>
-                  <span style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-                    <span style={{ fontWeight: 'var(--weight-medium)' }}>{group.label}</span>
-                    <span style={{ color: 'var(--color-foreground-muted)', fontSize: 'var(--text-xs)' }}>
-                      {group.locked_reason ?? def?.description ?? ''}
-                    </span>
-                    <Pill intent={statePillIntent[entry.state]} title={`Resolution source: ${sourceLabel[group.source]}`}>
-                      {sourceLabel[group.source]}
-                    </Pill>
-                  </span>
-                  <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 'var(--space-1)' }}>
-                    <span style={{ display: 'inline-flex', gap: 'var(--space-1)' }}>
+                <SettingsGroupRow
+                  key={serverGroup.id}
+                  group={def}
+                  value={entry.value}
+                  inherited={!overridden || isInheritedValue(def, entry.value)}
+                  locked={locked}
+                  lockedReason={serverGroup.locked_reason}
+                  stateLabel={sourceLabel[serverGroup.source]}
+                  stateIntent={overridden ? 'info' : 'muted'}
+                  controlEditable={!locked}
+                  onChange={(value) => handleOverride(def, value)}
+                  onReset={() => handleReset(def)}
+                  actions={
+                    <>
                       <Button
                         intent="ghost"
                         size="sm"
-                        aria-label={`Override ${group.label} for this adventure only`}
-                        onClick={() => handleOverride(group.id, group.effective_value)}
-                        disabled={overridden}
+                        aria-label={`Override ${def.label} for this adventure only`}
+                        onClick={() => handleOverride(def, entry.value)}
+                        disabled={overridden || locked}
                       >
                         Override
                       </Button>
                       <Button
                         intent="ghost"
                         size="sm"
-                        aria-label={`Inherit ${group.label} from user default`}
-                        onClick={() => handleInherit(group.id)}
-                        disabled={entry.state === 'inherit'}
+                        aria-label={`Inherit ${def.label} from user default`}
+                        onClick={() => handleInherit(def)}
+                        disabled={entry.state === 'inherit' || locked}
                       >
                         Inherit
                       </Button>
-                      <Button
-                        intent="ghost"
-                        size="sm"
-                        aria-label={`Reset ${group.label} to scenario default`}
-                        onClick={() => handleReset(group.id)}
-                      >
-                        Reset
-                      </Button>
-                    </span>
-                    {def?.options ? (
-                      <select
-                        aria-label={`${group.label} override`}
-                        value={String(entry.value)}
-                        disabled={!overridden}
-                        onChange={(event) => handleOverride(group.id, event.target.value)}
-                        style={controlStyle}
-                      >
-                        {def.options.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="checkbox"
-                        aria-label={`${group.label} override`}
-                        checked={Boolean(entry.value)}
-                        disabled={!overridden}
-                        onChange={(event) => handleOverride(group.id, event.target.checked)}
-                        style={controlStyle}
-                      />
-                    )}
-                  </span>
-                </li>
+                    </>
+                  }
+                />
               );
             })}
           </ul>
         </Card>
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
           <Button intent="primary" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save overrides'}

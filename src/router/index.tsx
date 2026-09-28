@@ -35,6 +35,11 @@ function wrap(element: ReactElement, requireAuth = false): ReactElement {
  * Auth requirements (per ADR-0001 + S2 spec):
  *  - Public: /, /library, /seed-preview, /play/:adventureId?, /login, /register
  *  - Auth:   /adventures/:id, /wallet, /settings, /referrals
+ *
+ * `/settings` serves the single canonical settings screen,
+ * `<UserSettingsPage>` (GLOBAL scope). The per-adventure scope is not a
+ * route — it is the `<AdventureSettingsDrawer>` opened from
+ * `/adventures/:id`, which renders from the same group catalogue.
  */
 export function router(): ReactElement {
   return (

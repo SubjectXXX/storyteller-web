@@ -7,7 +7,7 @@ import { Button } from '@/ui/Button';
 import { LoadingPanel } from '@/components/LoadingPanel';
 import { TokenMeter } from '@/components/TokenMeter';
 import { Typewriter } from '@/components/Typewriter';
-import { ApiError, type AdventureSettingsUpdateRequest } from '@/api-client';
+import { ApiError, type AdventureSettingsUpdateRequest, type PlayerSettingsResource } from '@/api-client';
 import {
   useAdventure,
   useAdventureStream,
@@ -26,14 +26,19 @@ import { useBranchTree } from '@/hooks/useBranchTree';
 import { useRetryBranch, useUndoBranch, useRedoBranch } from '@/hooks/useBranchOps';
 import { useCharacter } from '@/hooks/useCharacter';
 import { useNpcRoster } from '@/hooks/useNpcRoster';
-import { useRecap } from '@/hooks/useRecap';
 import { useDiceClock } from '@/hooks/useDiceClock';
 import { useInventory } from '@/hooks/useInventory';
 import { BranchBar } from '@/features/play/BranchBar/BranchBar';
 import { ImagePanel } from '@/features/play/ImagePanel/ImagePanel';
+import { CharacterPanel } from '@/features/play/CharacterPanel/CharacterPanel';
+import { NpcRoster } from '@/features/play/NpcRoster/NpcRoster';
+import { MemoryPanel } from '@/features/play/MemoryPanel/MemoryPanel';
+import { QuestLog, type Quest } from '@/features/play/QuestLog/QuestLog';
+import { InventoryPanel } from '@/features/play/InventoryPanel/InventoryPanel';
+import { DiceClockPanel } from '@/features/play/DiceClockPanel/DiceClockPanel';
 import { AdventureSettingsDrawer } from '@/features/settings/AdventureSettingsDrawer';
+import type { SettingValue } from '@/features/settings/settingsGroups';
 import { TURN_FIXTURE, type SuggestedChoice } from '@/fixtures/data';
-import type { Quest } from '@/features/play/QuestLog/QuestLog';
 
 /**
  * Generates a stable v4 UUID for the idempotency key. We rely on
@@ -115,7 +120,6 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   // continues to render even when an individual endpoint is offline.
   const characterQuery = useCharacter(adventureId);
   const npcQuery = useNpcRoster(adventureId);
-  const recapQuery = useRecap(adventureId);
   const branchTreeQuery = useBranchTree(adventureId);
   const adventureSettingsQuery = useAdventureSettings(adventureId);
   const playerSettingsQuery = usePlayerSettings();
@@ -123,6 +127,11 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   const undoBranch = useUndoBranch(adventureId);
   const redoBranch = useRedoBranch(adventureId);
   const updateAdventureSettings = useUpdateAdventureSettings(adventureId);
+  // The drawer resolves its "Inherited from user defaults" value by group id,
+  // so the player-defaults document is projected onto that id-keyed shape.
+  const userSettingValues = useMemo(() => toUserSettingValues(playerSettingsQuery.data), [
+    playerSettingsQuery.data,
+  ]);
 
   // Mechanics / inventory / effective-settings hooks must be called
   // unconditionally (Rules of Hooks). They accept null/undefined input
@@ -638,6 +647,51 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
         </form>
       </section>
 
+      {/*
+        World grid — the six Stage 4/5 play panels. Each one owns its own
+        loading / error / empty state so a single offline endpoint never
+        takes down the rest of the surface. The grid collapses to a single
+        column below the 280px track minimum (see `worldGridStyle`), which
+        is what the mobile viewport suite pins.
+      */}
+      <div
+        data-testid={ADVENTURE_PAGE_TESTIDS.worldGrid}
+        style={worldGridStyle}
+        aria-label="World panels"
+      >
+        <section aria-label="Character">
+          <CharacterPanel
+            character={characterQuery.data}
+            isLoading={characterQuery.isLoading}
+            error={characterQuery.error}
+          />
+        </section>
+
+        <section aria-label="NPCs">
+          <NpcRoster
+            npcs={npcQuery.data}
+            isLoading={npcQuery.isLoading}
+            error={npcQuery.error}
+          />
+        </section>
+
+        <section aria-label="Quests">
+          <QuestLog quests={quests} />
+        </section>
+
+        <section aria-label="Inventory">
+          <InventoryPanel items={inventory.items} totals={inventory.totals} />
+        </section>
+
+        <section aria-label="Mechanics">
+          <DiceClockPanel event={resolvedMechanicEvent} />
+        </section>
+
+        <section aria-label="Memory and recap">
+          <MemoryPanel adventureId={adventureId} />
+        </section>
+      </div>
+
       <section style={{ marginTop: 'var(--space-5)' }} aria-label="Visuals">
         <ImagePanel
           adventureId={adventure.id}
@@ -665,7 +719,7 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
           adventureId={adventure.id}
           branchId={adventure.current_branch.id}
           adventureSettings={adventureSettingsQuery.data}
-          userSettings={playerSettingsQuery.data}
+          userSettings={userSettingValues}
           isLoading={adventureSettingsQuery.isPending && !adventureSettingsQuery.data}
           error={adventureSettingsQuery.error ?? null}
           onSave={(body) => void onSaveAdventureSettings(body)}
@@ -675,6 +729,33 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
       )}
     </div>
   );
+}
+
+/**
+ * Project the player-defaults document onto the id-keyed shape the settings
+ * drawer reads. Listed key by key rather than cast through
+ * `Record<string, SettingValue>`: `PlayerSettingsResource` has no index
+ * signature, and `updated_at` is a document timestamp, not a setting, so a
+ * blanket cast would hand the drawer a key it can never resolve.
+ */
+function toUserSettingValues(
+  settings: PlayerSettingsResource | undefined,
+): Record<string, SettingValue> | undefined {
+  if (!settings) return undefined;
+  return {
+    typewriter_mode: settings.typewriter_mode,
+    theme: settings.theme,
+    content_rating: settings.content_rating,
+    action_mode: settings.action_mode,
+    world_genre: settings.world_genre,
+    language: settings.language,
+    narration_verbosity: settings.narration_verbosity,
+    suggested_choices_count: settings.suggested_choices_count,
+    dice_visibility: settings.dice_visibility,
+    npc_dialogue_density: settings.npc_dialogue_density,
+    font_size: settings.font_size,
+    reduced_motion: settings.reduced_motion,
+  };
 }
 
 function buildTypographyPreviewStyle(

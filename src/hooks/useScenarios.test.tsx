@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
+import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   scenarioKeys,
   useScenario,
   useScenarios,
-  usePlayTurn,
 } from './useScenarios';
 import {
   ApiClientProvider,
@@ -14,18 +14,21 @@ import {
 } from '@/api-client';
 import type { Fetcher } from '@/api-client';
 import { AuthProvider } from '@/auth/AuthContext';
-import { SCENARIO_RESOURCE_FIXTURES, PLAY_FIXTURE } from '@/fixtures/data';
+import { SCENARIO_RESOURCE_FIXTURES } from '@/fixtures/data';
 
 function makeWrapper(fetcher: Fetcher) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  // `<AuthProvider>` calls `useNavigate()`, so the router has to sit above it.
   return ({ children }: { children: ReactNode }): ReactElement => (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
   );
 }
 
@@ -64,11 +67,13 @@ describe('useScenarios', () => {
     };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </MemoryRouter>
     );
     const first = renderHook(() => useScenarios({ rating: 'mature' }), { wrapper });
     await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
@@ -107,29 +112,14 @@ describe('useScenario', () => {
   });
 });
 
-describe('usePlayTurn', () => {
-  it('loads the play turn for the active scenario (legacy S1 surface)', async () => {
-    const fetcher: Fetcher = async (path) => {
-      if (path === '/scenarios/demo-romance/play-turn') {
-        return PLAY_FIXTURE;
-      }
-      return undefined;
-    };
-    const { result } = renderHook(() => usePlayTurn('demo-romance'), {
-      wrapper: makeWrapper(fetcher),
-    });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.choices.length).toBeGreaterThanOrEqual(2);
+describe('play-turn surface (removed)', () => {
+  it('exposes no play-turn hook — the API has no /scenarios/{slug}/play-turn route', async () => {
+    const mod = (await import('./useScenarios')) as unknown as Record<string, unknown>;
+    expect(mod.usePlayTurn).toBeUndefined();
+    expect(mod.useSubmitChoice).toBeUndefined();
   });
 
-  it('surfaces the API error on the play-turn query', async () => {
-    const fetcher: Fetcher = async () => {
-      throw new ApiError(503, { message: 'down', code: 'down' });
-    };
-    const { result } = renderHook(() => usePlayTurn('demo-romance'), {
-      wrapper: makeWrapper(fetcher),
-    });
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect((result.current.error as ApiError).status).toBe(503);
+  it('keys the scenario detail query by slug', () => {
+    expect(scenarioKeys.detail('demo-romance')).toEqual(['scenarios', 'detail', 'demo-romance']);
   });
 });

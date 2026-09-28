@@ -8,6 +8,7 @@ import {
   ApiError,
 } from '@/api-client';
 import type { Fetcher } from '@/api-client';
+import { MemoryRouter } from 'react-router';
 import { AuthProvider } from '@/auth/AuthContext';
 import { SETTINGS_RESOURCE_FIXTURE } from '@/fixtures/data';
 
@@ -17,9 +18,12 @@ function makeWrapper(fetcher: Fetcher) {
   });
   return ({ children }: { children: ReactNode }): ReactElement => (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
-      </AuthProvider>
+      {/* AuthProvider calls useNavigate(), so the router must wrap it. */}
+      <MemoryRouter>
+        <AuthProvider>
+          <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+        </AuthProvider>
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -56,9 +60,11 @@ describe('useUpdateSettings', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
-        </AuthProvider>
+        <MemoryRouter>
+          <AuthProvider>
+            <ApiClientProvider fetcher={fetcher}>{children}</ApiClientProvider>
+          </AuthProvider>
+        </MemoryRouter>
       </QueryClientProvider>
     );
 

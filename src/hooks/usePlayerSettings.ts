@@ -7,6 +7,13 @@
  *   GET  /api/me/settings/player-defaults
  *   PUT  /api/me/settings/player-defaults
  *
+ * This is the canonical user-defaults capability. The S2 `/api/me/settings`
+ * document is a separate endpoint with a narrower allow-list and is reached
+ * through `useSettings`; the catalogue in
+ * `src/features/settings/settingsGroups.ts` binds each group to one or the
+ * other via its `document` field, so the two hooks are complementary
+ * rather than duplicates.
+ *
  * Response (`PlayerSettingsResource`) carries the full set of user-default
  * settings — a flat document so the API does not have to ship a separate
  * endpoint per setting group:

@@ -2,27 +2,37 @@
  * `useImageGen` — Stage 6 hook that issues an image-generation job and
  * polls until it resolves to `completed` or `failed`.
  *
- * Wire contract (S6-T01, see `fixtureFetcher` for the SPA shell):
+ * Wire contract (verified against the API, see `src/fixtures/data.ts`
+ * for the field-by-field mapping):
  *
  *   POST /api/adventures/{id}/turns/{turnId}/image
- *     body: { prompt: string, turn_id?: number, width?: number,
- *             height?: number }
- *     response: ImageJobResponse { job_id, adventure_id, branch_id,
- *       turn_id, prompt, status, asset, error, created_at, updated_at }
+ *     body: { prompt: string, negative_prompt?: string, model?: string }
+ *     200 (already completed) or 202 (still running)
+ *     response: ImageJobResponse { job_id: int, status, asset_url }
  *
- *   GET /api/image-jobs/{jobId}
- *     response: ImageJobResponse (same shape; status reflects the
- *     current state machine value)
+ *   GET /api/image-jobs/{jobId}          // whereNumber -> int id
+ *     response: ImageJobResponse (adds latency_ms, error, started_at,
+ *     completed_at; `error` is a plain string)
  *
  *   GET /api/adventures/{id}/images
  *     response: { adventure_id, assets: ImageAsset[] }   // carousel list
  *
+ * The turn is addressed by the *path*, so the body carries only the
+ * prompt — the server resolves the branch from the turn row and ignores
+ * any `turn_id` we might send. Jobs start in `pending`, not `queued`.
+ *
  * Errors:
- *   - 404: image generation not yet wired — caller renders a "Coming in
- *     Stage 6" placeholder.
- *   - 422: prompt rejected (empty, too long, or content-flagged). The
- *     `useImageJob` return value exposes the API error verbatim so the
- *     panel can show the upstream message.
+ *   - 404: adventure or turn not owned by the caller (both the create
+ *     and the poll endpoint answer 404 rather than leak existence).
+ *   - 422: prompt rejected (empty or > 4000 chars).
+ *   The return value exposes the API error verbatim so the panel can
+ *   show the upstream message.
+ *
+ * Offline degrade: `withFixtureFallback` (the default app fetcher) swaps
+ * in fixtures only for a *transport* failure — a `TypeError` from
+ * `fetch`, never an `ApiError` with an HTTP status. A 401/403/404/422/5xx
+ * is a real server answer and must surface as an error, so this hook
+ * never inspects or substitutes response data itself.
  *
  * The hook deliberately returns a *flat* object (`jobId`, `status`,
  * `asset`, `error`, `isLoading`) rather than the raw TanStack Query so
@@ -52,6 +62,14 @@ export const imageKeys = {
 const POLL_INTERVAL_MS = 1500;
 const POLL_TIMEOUT_MS = 60_000;
 
+/**
+ * Intrinsic size advertised for the single-image asset the hook builds
+ * from a completed job. The poll response carries `asset_url` only — no
+ * asset row, no dimensions — so the panel needs a stable box to render
+ * before the image loads.
+ */
+const GENERATED_ASSET_SIZE = { width: 1280, height: 720 } as const;
+
 export interface UseImageJobResult {
   readonly jobId: string | null;
   readonly status: ImageJobStatus | 'idle';
@@ -64,6 +82,25 @@ export interface UseImageJobResult {
    * the panel can show the loading skeleton again.
    */
   readonly regenerate: (nextPrompt?: string) => void;
+}
+
+/**
+ * Build the panel-facing asset from a resolved job. The job itself only
+ * carries `asset_url`; the carousel asset rows come from
+ * `GET /adventures/{id}/images` and are a different (richer) shape.
+ */
+function assetFromJob(data: ImageJobResponseShape, prompt: string): ImageAsset | null {
+  if (data.status !== 'completed') return null;
+  if (typeof data.asset_url !== 'string' || data.asset_url.length === 0) return null;
+  return {
+    id: data.job_id,
+    url: data.asset_url,
+    width: GENERATED_ASSET_SIZE.width,
+    height: GENERATED_ASSET_SIZE.height,
+    alt: `Generated scene for: ${prompt}`,
+    mime_type: null,
+    created_at: data.completed_at ?? data.started_at ?? null,
+  };
 }
 
 /**
@@ -115,7 +152,9 @@ export function useImageJob(
       return api.createImageJob(
         adventureId,
         turnId,
-        { prompt: currentPrompt, turn_id: turnId },
+        // The turn is addressed by the path segment; `SubmitImageJobRequest`
+        // only accepts `prompt`, `negative_prompt` and `model`.
+        { prompt: currentPrompt },
         { signal },
       );
     },
@@ -136,13 +175,20 @@ export function useImageJob(
   });
 
   // Surface the resolved job id as soon as the create call resolves.
+  // The server hands back an integer (`whereNumber` on the poll route),
+  // so anything else is a contract break we refuse to poll with — a
+  // non-numeric id would 404 on every poll and read as "no image".
   const lastSeenCreateIdRef = useRef<string | null>(null);
+  const rawJobId = createQuery.data?.job_id;
+  const jobIdIsMalformed = rawJobId !== undefined && !Number.isInteger(rawJobId);
+  const createdJobId =
+    typeof rawJobId === 'number' && Number.isInteger(rawJobId) ? String(rawJobId) : null;
   useEffect(() => {
-    if (createQuery.data?.job_id && createQuery.data.job_id !== lastSeenCreateIdRef.current) {
-      lastSeenCreateIdRef.current = createQuery.data.job_id;
-      setJobId(createQuery.data.job_id);
+    if (createdJobId && createdJobId !== lastSeenCreateIdRef.current) {
+      lastSeenCreateIdRef.current = createdJobId;
+      setJobId(createdJobId);
     }
-  }, [createQuery.data]);
+  }, [createdJobId]);
 
   // 2) Poll the job until it resolves. We use `useQuery` with a manual
   // `refetchInterval` rather than `setInterval` so the polling lifecycle
@@ -182,28 +228,35 @@ export function useImageJob(
     return () => window.clearInterval(handle);
   }, [jobId, regenerateNonce]);
 
+  // A job that the server rejected is `failed` even when we never got a
+  // body back (422 on create, 404 on poll). Reporting `idle` there would
+  // hide the error from the panel, which only renders it on `failed`.
+  const queryFailed = createQuery.isError || pollQuery.isError;
   const status: ImageJobStatus | 'idle' =
-    timedOut && pollQuery.data?.status !== 'completed' && pollQuery.data?.status !== 'failed'
+    timedOut || queryFailed
       ? 'failed'
-      : pollQuery.data?.status ?? (createQuery.isFetching ? 'queued' : 'idle');
+      : pollQuery.data?.status ?? (createQuery.isFetching ? 'pending' : 'idle');
 
-  const asset: ImageAsset | null =
-    pollQuery.data?.status === 'completed' ? pollQuery.data.asset : null;
+  const asset: ImageAsset | null = pollQuery.data
+    ? assetFromJob(pollQuery.data, currentPrompt)
+    : null;
 
   const error: { readonly message: string; readonly code?: string } | null =
-    timedOut
-      ? { message: 'Image generation timed out', code: 'poll_timeout' }
-      : pollQuery.data?.status === 'failed' && pollQuery.data.error
-        ? pollQuery.data.error
-        : pollQuery.error
-          ? { message: pollQuery.error.message, code: pollQuery.error.code }
-          : createQuery.error
-            ? { message: createQuery.error.message, code: createQuery.error.code }
-            : null;
+    jobIdIsMalformed
+      ? { message: 'Image job id was not a number; refusing to poll.', code: 'contract_mismatch' }
+      : timedOut
+        ? { message: 'Image generation timed out', code: 'poll_timeout' }
+        : pollQuery.data?.status === 'failed' && pollQuery.data.error
+          ? { message: pollQuery.data.error, code: 'image_job_failed' }
+          : pollQuery.error
+            ? { message: pollQuery.error.message, code: pollQuery.error.code }
+            : createQuery.error
+              ? { message: createQuery.error.message, code: createQuery.error.code }
+              : null;
 
   const isLoading =
     !timedOut &&
-    (createQuery.isFetching || (status === 'queued' || status === 'generating'));
+    (createQuery.isFetching || (status === 'pending' || status === 'generating'));
 
   const regenerate = (nextPrompt?: string) => {
     if (typeof nextPrompt === 'string') setCurrentPrompt(nextPrompt);

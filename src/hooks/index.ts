@@ -3,8 +3,6 @@ export {
   useScenario,
   useScenarioVersion,
   useScenarios,
-  usePlayTurn,
-  useSubmitChoice,
 } from './useScenarios';
 export { walletKeys, useWallet, useTopUpWallet } from './useWallet';
 export { creditPackageKeys, useCreditPackages } from './useCreditPackages';

@@ -2,8 +2,6 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useApiClient } from '@/api-client';
 import {
   ApiError,
-  type PlayTurnChoiceRequest,
-  type PlayTurnResponse,
   type ScenarioDetailResponse,
   type ScenarioListQuery,
   type ScenarioListResponse,
