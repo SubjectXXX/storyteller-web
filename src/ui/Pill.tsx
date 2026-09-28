@@ -45,6 +45,13 @@ export function Pill({ children, intent = 'neutral', title }: PillProps): ReactE
   const style: CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
+    // A column flex container defaults to `align-items: stretch`, so the
+    // cross axis is horizontal and this badge was stretched to the full
+    // width of its parent card. `width: 'fit-content'` only constrains the
+    // horizontal axis, so it stays a no-op in normal inline flow and inside
+    // row flex containers (where the cross axis is vertical and
+    // `alignItems: 'center'` still centers the badge).
+    width: 'fit-content',
     gap: 'var(--space-1)',
     padding: '2px var(--space-2)',
     fontSize: 'var(--text-xs)',

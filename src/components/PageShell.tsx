@@ -32,7 +32,6 @@ export function PageShell({ children }: PageShellProps): ReactElement {
           color: 'var(--color-foreground-subtle)',
           textAlign: 'center',
           fontSize: 'var(--text-xs)',
-          borderTop: '1px solid var(--color-border)',
         }}
       >
         Storyteller · Lantern & Ink
