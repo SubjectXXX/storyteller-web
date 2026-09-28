@@ -11,10 +11,12 @@ import {
   IMAGE_CAROUSEL_FIXTURE,
   IMAGE_JOB_COMPLETED_FIXTURE,
   IMAGE_JOB_QUEUED_FIXTURE,
-  SAMPLE_IMAGE_ALT,
   type Fetcher,
   type ImageJobResponse,
 } from '@/api-client';
+// Not re-exported by the `@/api-client` barrel; a missing export resolves
+// to `undefined` at runtime instead of failing the build.
+import { SAMPLE_IMAGE_ALT } from '@/fixtures/data';
 import { AuthProvider } from '@/auth/AuthContext';
 import { ImagePanel } from './ImagePanel';
 
@@ -69,8 +71,9 @@ describe('ImagePanel', () => {
           ...IMAGE_JOB_QUEUED_FIXTURE,
           job_id: IMAGE_JOB_QUEUED_FIXTURE.job_id,
           status: 'failed',
-          asset: null,
-          error: { message: 'Model overloaded', code: 'overloaded' },
+          asset_url: null,
+          // The API reports the failure reason as a plain string.
+          error: 'Model overloaded',
         };
         return failed;
       }
@@ -124,10 +127,14 @@ describe('ImagePanel', () => {
       const method = options.method ?? 'GET';
       if (method === 'POST' && path.startsWith('/adventures/')) {
         createCount += 1;
-        return { ...IMAGE_JOB_QUEUED_FIXTURE, job_id: `job-${createCount}` };
+        return { ...IMAGE_JOB_QUEUED_FIXTURE, job_id: 9300 + createCount };
       }
       if (method === 'GET' && path.startsWith('/image-jobs/')) {
-        return { ...IMAGE_JOB_COMPLETED_FIXTURE, job_id: `job-${createCount}`, asset: IMAGE_ASSET_FIXTURE };
+        return {
+          ...IMAGE_JOB_COMPLETED_FIXTURE,
+          job_id: 9300 + createCount,
+          asset_url: IMAGE_ASSET_FIXTURE.url,
+        };
       }
       if (path === '/adventures/7/images') {
         return { adventure_id: 7, assets: IMAGE_CAROUSEL_FIXTURE };

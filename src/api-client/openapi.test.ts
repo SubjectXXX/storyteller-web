@@ -86,6 +86,69 @@ describe('liveFetcher', () => {
   });
 });
 
+describe('surviving Stage 5 operations (routes verified against routes/api.php)', () => {
+  it('getLore requests the declared GET /api/adventures/{id}/lore path', async () => {
+    const captured: Array<{ url: string; method?: string }> = [];
+    // @ts-expect-error -- minimal fetch shim
+    globalThis.fetch = async (url: string, init: RequestInit) => {
+      captured.push({ url, method: init.method });
+      return new Response(JSON.stringify({ data: { adventure_id: 7, entries: [{ key: 'a.b' }] } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const api = createApi(liveFetcher('/api'));
+    const lore = await api.getLore(7);
+
+    expect(captured).toEqual([{ url: '/api/adventures/7/lore', method: 'GET' }]);
+    expect(lore.adventure_id).toBe(7);
+  });
+
+  it('getLore appends the key filter when a single entry is requested', async () => {
+    const captured: string[] = [];
+    // @ts-expect-error -- minimal fetch shim
+    globalThis.fetch = async (url: string) => {
+      captured.push(url);
+      return new Response(JSON.stringify({ data: { adventure_id: 7, entries: [] } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    await createApi(liveFetcher('/api')).getLore(7, { key: 'archive.location' });
+    expect(captured).toEqual(['/api/adventures/7/lore?key=archive.location']);
+  });
+
+  it('getRecap requests the declared GET /api/adventures/{id}/recap path', async () => {
+    const captured: string[] = [];
+    // @ts-expect-error -- minimal fetch shim
+    globalThis.fetch = async (url: string) => {
+      captured.push(url);
+      return new Response(JSON.stringify({ data: { adventure_id: 7, branch_id: 3, turns: [] } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    await createApi(liveFetcher('/api')).getRecap(7);
+    expect(captured).toEqual(['/api/adventures/7/recap']);
+  });
+
+  it('surfaces a 404 as an error instead of an empty list', async () => {
+    // @ts-expect-error -- minimal fetch shim
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ data: null, errors: [{ code: 'not_found', message: 'Not Found' }] }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    const api = createApi(liveFetcher('/api'));
+    await expect(api.getRecap(7)).rejects.toBeInstanceOf(ApiError);
+    await expect(api.getLore(7)).rejects.toMatchObject({ status: 404, code: 'not_found' });
+  });
+});
+
 describe('fixtureFetcher', () => {
   const api = createApi(fixtureFetcher());
 
@@ -231,9 +294,40 @@ describe('fixtureFetcher', () => {
     await expect(api.signUp(body)).rejects.toMatchObject({ status: 422 });
   });
 
-  it('returns the legacy play-turn fixture for PlaySurfacePlaceholder', async () => {
-    const turn = await api.getPlayTurn('demo-romance');
-    expect(turn.choices.length).toBeGreaterThanOrEqual(2);
+  it('has no play-turn operation — /api/scenarios/{slug}/play-turn is not a route', async () => {
+    const api = createApi(fixtureFetcher()) as unknown as Record<string, unknown>;
+    expect(api.getPlayTurn).toBeUndefined();
+    expect(api.submitChoice).toBeUndefined();
+  });
+
+  it('has no pinned-memories operation — the API declares no such route', async () => {
+    const api = createApi(fixtureFetcher()) as unknown as Record<string, unknown>;
+    expect(api.getPinnedMemories).toBeUndefined();
+    expect(api.pinMemory).toBeUndefined();
+  });
+});
+
+describe('fixtureFetcher: deleted endpoints must not fake success', () => {
+  const fetcher = fixtureFetcher();
+
+  it('throws rather than serving a play-turn fixture', async () => {
+    await expect(fetcher('/scenarios/demo-romance/play-turn', { method: 'GET' })).rejects.toMatchObject({
+      status: 404,
+      code: 'not_found',
+    });
+    await expect(
+      fetcher('/scenarios/demo-romance/play-turn', { method: 'POST', body: { choiceId: 'a' } }),
+    ).rejects.toMatchObject({ status: 404, code: 'not_found' });
+  });
+
+  it('throws rather than serving a pinned-memories list', async () => {
+    await expect(fetcher('/adventures/101/pinned-memories', { method: 'GET' })).rejects.toMatchObject({
+      status: 404,
+      code: 'not_found',
+    });
+    await expect(
+      fetcher('/adventures/101/pinned-memories', { method: 'POST', body: { kind: 'recap', ref_id: '7' } }),
+    ).rejects.toMatchObject({ status: 404, code: 'not_found' });
   });
 });
 

@@ -634,8 +634,17 @@ export interface AdventureSettingsResource {
 export interface AdventureSettingsGroupUpdate {
   readonly id: string;
   readonly state: SettingGroupState;
-  /** Explicit override; required when state === 'override', ignored otherwise. */
-  readonly value: string | number | boolean | null;
+  /**
+   * Explicit override; required when state === 'override', ignored otherwise.
+   *
+   * JSON-valued, not scalar-only: the server persists this in the
+   * `adventure_settings.value` **json** column (model cast `'value' => 'array'`)
+   * and `AdventureSettingsService::setOverride()` takes an `array $value`;
+   * `UpdateAdventureSettingsRequest` validates `settings.*` with no scalar
+   * constraint. A multi-select group (`content_warnings`, a keyword list) is
+   * therefore sent as a string array, never joined into one string.
+   */
+  readonly value: string | number | boolean | ReadonlyArray<string> | null;
 }
 
 export interface AdventureSettingsUpdateRequest {
@@ -913,32 +922,61 @@ export const PINNED_MEMORY_FIXTURE: PinnedMemoryListResponse = {
 
 // ---------- Stage 6 — Visual generation: Image job (S6-T01) ----------------
 //
-// The Stage 6 API issues a background job per image request and exposes a
-// polling endpoint at `/api/image-jobs/{jobId}`. The fixture transport
-// resolves `completed` after one polling interval so the SPA shell can
-// exercise the polling path without a real backend.
+// Shapes below are verified against the API (routes/api.php
+// `adventures.turns.image.store` / `adventures.images.gallery` /
+// `image_jobs.show`, App\Http\Controllers\Adventures\ImageJobController,
+// App\Http\Requests\Adventures\SubmitImageJobRequest, App\Models\ImageJob):
+//
+//   POST /api/adventures/{id}/turns/{turnId}/image
+//     body: { prompt, negative_prompt?, model? }
+//     200 (already completed) / 202 (still running)
+//     data: { job_id: int, status, asset_url: string|null }
+//
+//   GET /api/image-jobs/{jobId}      // ->whereNumber: jobId is an int
+//     data: { job_id, status, asset_url, latency_ms, error,
+//             started_at, completed_at }
+//
+//   GET /api/adventures/{id}/images
+//     data: { adventure_id, assets: ImageAsset[] }
+//
+// `liveFetcher` unwraps the `{data, meta}` envelope, so these are the
+// post-unwrap payloads and mirror the controller's `data` keys exactly.
+// There is no `asset` object on a job and no `queued` status: the first
+// state the model records is `pending`, and the failure reason is a
+// plain string, not `{message, code}`.
 
-export type ImageJobStatus = 'queued' | 'generating' | 'completed' | 'failed';
+/** `ImageJob::ALL_STATUSES`. */
+export type ImageJobStatus = 'pending' | 'generating' | 'completed' | 'failed';
 
+/**
+ * `ImageJobController::gallery` asset entry. `mime_type` / `created_at`
+ * are nullable because the poll response carries only `asset_url` — the
+ * single-image asset the hook synthesises from a completed job has no
+ * asset row behind it.
+ */
 export interface ImageAsset {
-  readonly id: string;
+  readonly id: number;
   readonly url: string;
   readonly width: number;
   readonly height: number;
   readonly alt: string;
+  readonly mime_type: string | null;
+  readonly created_at: string | null;
 }
 
+/**
+ * Create + poll response. `latency_ms` / `error` / `started_at` /
+ * `completed_at` appear only on the poll endpoint; the create endpoint
+ * returns `job_id`, `status` and `asset_url` only.
+ */
 export interface ImageJobResponse {
-  readonly job_id: string;
-  readonly adventure_id: number;
-  readonly branch_id: number;
-  readonly turn_id: number;
-  readonly prompt: string;
+  readonly job_id: number;
   readonly status: ImageJobStatus;
-  readonly asset: ImageAsset | null;
-  readonly error: { readonly message: string; readonly code?: string } | null;
-  readonly created_at: string;
-  readonly updated_at: string;
+  readonly asset_url: string | null;
+  readonly latency_ms?: number | null;
+  readonly error?: string | null;
+  readonly started_at?: string | null;
+  readonly completed_at?: string | null;
 }
 
 export const SAMPLE_IMAGE_ALT =
@@ -950,11 +988,13 @@ export const SAMPLE_IMAGE_ALT =
 export const IMG_FIXTURE_URL = '/fixtures/sample-image.svg';
 
 export const IMAGE_ASSET_FIXTURE: ImageAsset = {
-  id: 'asset-misty-harbour-001',
+  id: 9001,
   url: IMG_FIXTURE_URL,
   width: 1280,
   height: 720,
   alt: SAMPLE_IMAGE_ALT,
+  mime_type: 'image/svg+xml',
+  created_at: '2026-09-22T18:00:02Z',
 };
 
 // Three carousel entries — what the player sees in the gallery before any
@@ -962,52 +1002,63 @@ export const IMAGE_ASSET_FIXTURE: ImageAsset = {
 export const IMAGE_CAROUSEL_FIXTURE: ReadonlyArray<ImageAsset> = [
   IMAGE_ASSET_FIXTURE,
   {
-    id: 'asset-archive-002',
+    id: 9002,
     url: IMG_FIXTURE_URL,
     width: 1280,
     height: 720,
     alt: 'Storm-battered limestone archive perched above a misty harbour.',
+    mime_type: 'image/svg+xml',
+    created_at: '2026-09-22T18:04:02Z',
   },
   {
-    id: 'asset-village-003',
+    id: 9003,
     url: IMG_FIXTURE_URL,
     width: 1280,
     height: 720,
     alt: 'Lantern-lit village lane leading to the archive at dusk.',
+    mime_type: 'image/svg+xml',
+    created_at: '2026-09-22T18:08:02Z',
   },
 ];
 
 export const DEFAULT_IMAGE_PROMPT = 'A misty harbour at dusk, cinematic lighting';
 
-// `pending` fixture used by tests that exercise the queued → completed path
-// before any polling has happened. The default `IMAGE_JOB_COMPLETED_FIXTURE`
-// resolves the carousel asset so the SPA can render without a real backend.
-export const IMAGE_JOB_QUEUED_FIXTURE: ImageJobResponse = {
-  job_id: 'job-fixture-queued-001',
-  adventure_id: ADVENTURE_FIXTURE.id,
-  branch_id: ADVENTURE_FIXTURE.current_branch.id,
-  turn_id: 1,
-  prompt: DEFAULT_IMAGE_PROMPT,
-  status: 'queued',
-  asset: null,
+// Job ids are integers: the server route is `->whereNumber('jobId')` and
+// the controller casts `(int) $job->id`, so a non-numeric fixture id would
+// build a poll URL the API rejects with a 404.
+export const IMAGE_JOB_PENDING_FIXTURE: ImageJobResponse = {
+  job_id: 9101,
+  status: 'pending',
+  asset_url: null,
+  latency_ms: null,
   error: null,
-  created_at: '2026-09-22T18:00:00Z',
-  updated_at: '2026-09-22T18:00:00Z',
+  started_at: null,
+  completed_at: null,
 };
 
+/**
+ * @deprecated The first state is `pending` (see `ImageJob::STATUS_PENDING`),
+ * not `queued`. Kept as an alias so the fixture transport keeps compiling
+ * while it is repointed at the real `/adventures/{id}/turns/{turnId}/image`
+ * path; new code should import `IMAGE_JOB_PENDING_FIXTURE`.
+ */
+export const IMAGE_JOB_QUEUED_FIXTURE = IMAGE_JOB_PENDING_FIXTURE;
+
 export const IMAGE_JOB_GENERATING_FIXTURE: ImageJobResponse = {
-  ...IMAGE_JOB_QUEUED_FIXTURE,
-  job_id: 'job-fixture-generating-001',
+  ...IMAGE_JOB_PENDING_FIXTURE,
+  job_id: 9102,
   status: 'generating',
-  updated_at: '2026-09-22T18:00:01Z',
+  started_at: '2026-09-22T18:00:01Z',
 };
 
 export const IMAGE_JOB_COMPLETED_FIXTURE: ImageJobResponse = {
-  ...IMAGE_JOB_QUEUED_FIXTURE,
-  job_id: 'job-fixture-completed-001',
+  ...IMAGE_JOB_PENDING_FIXTURE,
+  job_id: 9103,
   status: 'completed',
-  asset: IMAGE_ASSET_FIXTURE,
-  updated_at: '2026-09-22T18:00:02Z',
+  asset_url: IMG_FIXTURE_URL,
+  latency_ms: 1840,
+  started_at: '2026-09-22T18:00:01Z',
+  completed_at: '2026-09-22T18:00:02Z',
 };
 // ---------- Stage 4 — World panels (S4-T01) --------------------------------
 //
