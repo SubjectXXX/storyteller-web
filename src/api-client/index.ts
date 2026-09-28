@@ -11,8 +11,15 @@ export {
   makeFixtureStream,
   parseStreamEvent,
   withFixtureFallback,
+  type AdventureMediaFolder,
+  type AdventureMediaResponse,
+  type AdventureMediaResponseShape,
   type ApiClient,
   type ApiErrorBody,
+  type MediaDeleteResponse,
+  type MediaDeleteResponseShape,
+  type MediaItem,
+  type MediaKind,
 } from './openapi';
 
 export {

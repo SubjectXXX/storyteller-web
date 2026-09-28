@@ -30,6 +30,7 @@ import { useDiceClock } from '@/hooks/useDiceClock';
 import { useInventory } from '@/hooks/useInventory';
 import { BranchBar } from '@/features/play/BranchBar/BranchBar';
 import { ImagePanel } from '@/features/play/ImagePanel/ImagePanel';
+import { PlayerMediaPanel } from '@/features/play/PlayerMediaPanel/PlayerMediaPanel';
 import { AdventureSettingsDrawer } from '@/features/settings/AdventureSettingsDrawer';
 import { TURN_FIXTURE, type SuggestedChoice } from '@/fixtures/data';
 import type { Quest } from '@/features/play/QuestLog/QuestLog';
@@ -497,6 +498,12 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
           adventureId={adventure.id}
           branchId={adventure.current_branch.id}
           turnId={liveTurnId}
+        />
+        {/* Player-owned uploads for this adventure. Distinct surface from
+            the generated-art panel above: private, uploadable, deletable. */}
+        <PlayerMediaPanel
+          adventureId={adventure.id}
+          branchId={adventure.current_branch.id}
         />
       </section>
 

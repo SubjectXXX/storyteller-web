@@ -35,6 +35,7 @@ import {
   IMAGE_CAROUSEL_FIXTURE,
   IMAGE_JOB_COMPLETED_FIXTURE,
   IMAGE_JOB_QUEUED_FIXTURE,
+  IMG_FIXTURE_URL,
   LORE_FIXTURE,
   NPC_FIXTURE,
   PINNED_MEMORY_FIXTURE,
@@ -426,6 +427,72 @@ export interface ImageCarouselResponse {
 }
 export type ImageCarouselResponseShape = ImageCarouselResponse;
 
+// ---------- Player media folder (owner-scoped, per adventure) ----------------
+//
+// Every authenticated player owns one *private* media folder per adventure.
+// The folder is not a story asset: it is where the player drops their own
+// pictures (portraits of their character, maps they drew, reference art)
+// while playing. The API refuses to reveal that another player's folder
+// exists — it answers 404 rather than 403 — so the SPA never has to reason
+// about "forbidden" for this surface.
+//
+// Wire contract:
+//
+//   GET    /api/adventures/{id}/media
+//     response: AdventureMediaResponse
+//   POST   /api/adventures/{id}/media
+//     request:  multipart/form-data — `file` (required), `kind`
+//               (optional, defaults to `image`), `caption` (optional)
+//     response: MediaItem (the created entry)
+//   DELETE /api/adventures/{id}/media/{mediaId}
+//     response: MediaDeleteResponse { deleted: true, id }
+//
+// `item.url` is opaque: the API returns either a short-lived signed S3 URL
+// or a gateway-relative path to locally-stored bytes, and both can rotate.
+// The SPA renders whatever it is given and never composes a path itself.
+//
+// Errors:
+//   - 404: the adventure is not yours (or does not exist). The folder and
+//     the list share this code, so a caller must not treat a 404 as
+//     "empty folder".
+//   - 413: the upload exceeds the configured per-file ceiling.
+//   - 422: the mime type is not allowed for media (or `file` was missing).
+
+export type MediaKind = 'image' | 'audio' | 'video' | 'generic';
+
+export interface MediaItem {
+  readonly id: number;
+  readonly filename: string;
+  readonly mime_type: string;
+  readonly size_bytes: number;
+  readonly kind: MediaKind;
+  /** Opaque. Rendered verbatim into `<img src>`; never re-derived. */
+  readonly url: string;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly created_at: string;
+}
+
+export interface AdventureMediaFolder {
+  readonly id: number;
+  readonly name: string;
+  readonly path: string;
+  readonly scope: string;
+}
+
+export interface AdventureMediaResponse {
+  readonly adventure_id: number;
+  readonly folder: AdventureMediaFolder;
+  readonly items: ReadonlyArray<MediaItem>;
+}
+export type AdventureMediaResponseShape = AdventureMediaResponse;
+
+export type MediaDeleteResponse = {
+  readonly deleted: boolean;
+  readonly id: number;
+};
+export type MediaDeleteResponseShape = MediaDeleteResponse;
+
 // ---------- Streaming SSE -------------------------------------------------
 
 /**
@@ -715,6 +782,22 @@ export interface ApiClient {
     options?: RequestOptions,
   ) => Promise<ImageCarouselResponseShape>;
 
+  // Player media folder (owner-scoped, per adventure)
+  readonly getAdventureMedia: (
+    adventureId: number,
+    options?: RequestOptions,
+  ) => Promise<AdventureMediaResponseShape>;
+  readonly uploadAdventureMedia: (
+    adventureId: number,
+    form: FormData,
+    options?: RequestOptions,
+  ) => Promise<MediaItem>;
+  readonly deleteAdventureMedia: (
+    adventureId: number,
+    mediaId: number,
+    options?: RequestOptions,
+  ) => Promise<MediaDeleteResponseShape>;
+
   // Streaming SSE
   readonly streamAdventure: (
     id: number,
@@ -767,9 +850,16 @@ export function liveFetcher(baseUrl: string = DEFAULT_BASE_URL, authToken?: stri
     const init: RequestInit = {
       method,
       headers,
-      body: options.body !== undefined && !(options.body instanceof FormData)
-        ? JSON.stringify(options.body)
-        : undefined,
+      // `FormData` must be handed to fetch untouched: the browser derives
+      // the multipart boundary (and its `Content-Type`) itself, so the
+      // only thing the transport has to do is *not* JSON-encode it. Any
+      // other body keeps the JSON encoding + `Content-Type` above.
+      body:
+        options.body === undefined
+          ? undefined
+          : options.body instanceof FormData
+            ? options.body
+            : JSON.stringify(options.body),
       signal: options.signal,
       credentials: 'include',
     };
@@ -1508,6 +1598,57 @@ export function fixtureFetcher(): Fetcher {
       } satisfies ImageCarouselResponse;
     }
 
+    // ----- Player media folder (owner-scoped) -----
+    if (method === 'GET' && /^\/adventures\/\d+\/media$/.test(path_)) {
+      const adventureId = Number(path_.split('/')[2] ?? '0');
+      return {
+        adventure_id: adventureId,
+        folder: {
+          id: 0,
+          name: 'Your media',
+          // Stand-in for the server-owned storage path. The SPA renders
+          // `items[].url` verbatim and never builds one of these, so this
+          // value only exists to keep the dev shell legible.
+          path: `fixtures/adventures/${adventureId}/media`,
+          scope: 'adventure',
+        },
+        // Offline shell ships an empty folder on purpose: uploading is a
+        // live-API-only affordance, and a fake thumbnail would be a lie.
+        items: [],
+      } satisfies AdventureMediaResponse;
+    }
+    if (method === 'POST' && /^\/adventures\/\d+\/media$/.test(path_)) {
+      const form = options.body instanceof FormData ? options.body : undefined;
+      const file = form?.get('file');
+      if (!form || typeof File === 'undefined' || !(file instanceof File)) {
+        throw new ApiError(422, {
+          message: 'file is required.',
+          code: 'validation',
+          fields: { file: 'file is required.' },
+        });
+      }
+      const kind = (form.get('kind') as MediaKind | null) ?? 'image';
+      return {
+        id: 9001,
+        filename: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        size_bytes: file.size,
+        kind,
+        // Dev-shell stand-in. Live responses carry a short-lived signed S3
+        // URL or a gateway-relative path; both are rendered verbatim. We
+        // borrow the sample asset from `public/` so the thumbnail resolves
+        // without a backend.
+        url: IMG_FIXTURE_URL,
+        width: 1280,
+        height: 720,
+        created_at: new Date().toISOString(),
+      } satisfies MediaItem;
+    }
+    if (method === 'DELETE' && /^\/adventures\/\d+\/media\/\d+$/.test(path_)) {
+      const id = Number(path_.split('/').pop() ?? '0');
+      return { deleted: true, id } satisfies MediaDeleteResponse;
+    }
+
     // ----- Legacy play-turn (kept for PlaySurfacePlaceholder) -----
     if (method === 'GET' && /^\/scenarios\/[^/]+\/play-turn$/.test(path_)) {
       return PLAY_FIXTURE satisfies PlayTurnFixture;
@@ -1779,6 +1920,24 @@ export function createApi(fetcher: Fetcher, authToken?: string): ApiClient {
         ...options,
         method: 'GET',
       }) as Promise<ImageCarouselResponseShape>,
+
+    // Player media folder (owner-scoped, per adventure)
+    getAdventureMedia: (adventureId, options) =>
+      fetcher(`/adventures/${adventureId}/media`, {
+        ...options,
+        method: 'GET',
+      }) as Promise<AdventureMediaResponseShape>,
+    uploadAdventureMedia: (adventureId, form, options) =>
+      fetcher(`/adventures/${adventureId}/media`, {
+        ...options,
+        method: 'POST',
+        body: form,
+      }) as Promise<MediaItem>,
+    deleteAdventureMedia: (adventureId, mediaId, options) =>
+      fetcher(`/adventures/${adventureId}/media/${mediaId}`, {
+        ...options,
+        method: 'DELETE',
+      }) as Promise<MediaDeleteResponseShape>,
 
     // Streaming SSE — runs out-of-band of the `Fetcher` because it is a
     // long-lived request, not a single round trip. We expose a hook-level

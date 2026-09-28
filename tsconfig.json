@@ -1,4 +1,19 @@
 {
+  // Root project-references stub. `tsc -b` delegates the real work to
+  // tsconfig.app.json (browser sources) and tsconfig.node.json (build
+  // tooling); neither is a child of the other, so they are referenced
+  // rather than extended.
+  //
+  // The `compilerOptions.jsx` below is NOT redundant with
+  // tsconfig.app.json. Vitest 3 bundles Vite 7, whose esbuild transform
+  // resolves THIS file when it compiles a .tsx spec. Before it was added,
+  // esbuild saw no `jsx` setting and fell back to the classic runtime, so
+  // every .tsx test in the repo died with "ReferenceError: React is not
+  // defined". tsconfig.app.json already sets "jsx": "react-jsx" but
+  // excludes *.test.*, so it never covers the specs.
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
   "files": [],
   "references": [
     { "path": "./tsconfig.app.json" },

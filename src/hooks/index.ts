@@ -76,3 +76,11 @@ export {
   useImageJob,
   type UseImageJobResult,
 } from './useImageGen';
+
+// Player media folder — the player's own uploads for one adventure
+export {
+  adventureMediaKeys,
+  useAdventureMedia,
+  useDeleteAdventureMedia,
+  useUploadAdventureMedia,
+} from './useAdventureMedia';

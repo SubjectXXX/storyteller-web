@@ -235,6 +235,118 @@ describe('fixtureFetcher', () => {
     const turn = await api.getPlayTurn('demo-romance');
     expect(turn.choices.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('returns an empty (but populated) player media folder for an adventure', async () => {
+    const folder = await api.getAdventureMedia(101);
+    expect(folder.adventure_id).toBe(101);
+    expect(folder.folder.scope).toBe('adventure');
+    expect(Array.isArray(folder.items)).toBe(true);
+    expect(folder.items).toHaveLength(0);
+  });
+
+  it('echoes an uploaded file back as a media item', async () => {
+    const form = new FormData();
+    form.append('file', new File(['bytes'], 'portrait.png', { type: 'image/png' }));
+    form.append('kind', 'image');
+    const created = await api.uploadAdventureMedia(101, form);
+    expect(created.filename).toBe('portrait.png');
+    expect(created.kind).toBe('image');
+    expect(created.url).toBeTruthy();
+  });
+
+  it('rejects an upload with no file part', async () => {
+    const form = new FormData();
+    form.append('kind', 'image');
+    await expect(api.uploadAdventureMedia(101, form)).rejects.toMatchObject({
+      status: 422,
+      code: 'validation',
+    });
+  });
+
+  it('acknowledges a media delete', async () => {
+    const result = await api.deleteAdventureMedia(101, 9001);
+    expect(result).toEqual({ deleted: true, id: 9001 });
+  });
+});
+
+describe('player media transport', () => {
+  it('unwraps the {data, meta} envelope for getAdventureMedia', async () => {
+    const captured: Array<{ url: string; init: RequestInit }> = [];
+    // @ts-expect-error -- minimal fetch shim
+    globalThis.fetch = async (url: string, init: RequestInit) => {
+      captured.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          data: {
+            adventure_id: 42,
+            folder: { id: 5, name: 'Your media', path: 'adventures/42/media', scope: 'adventure' },
+            items: [
+              {
+                id: 1,
+                filename: 'map.png',
+                mime_type: 'image/png',
+                size_bytes: 1024,
+                kind: 'image',
+                url: 'https://cdn.example.test/signed/xyz',
+                width: 100,
+                height: 50,
+                created_at: '2026-09-27T20:00:00Z',
+              },
+            ],
+          },
+          meta: { request_id: 'r-42' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    };
+
+    const api = createApi(liveFetcher('/api', 'token-abc'));
+    const folder = await api.getAdventureMedia(42);
+
+    expect(captured[0]?.url).toBe('/api/adventures/42/media');
+    expect(captured[0]?.init.method).toBe('GET');
+    expect(folder.adventure_id).toBe(42);
+    expect(folder.items[0]?.url).toBe('https://cdn.example.test/signed/xyz');
+  });
+
+  it('sends a FormData body untouched and omits the JSON content-type', async () => {
+    const captured: Array<{ url: string; init: RequestInit }> = [];
+    // @ts-expect-error -- minimal fetch shim
+    globalThis.fetch = async (url: string, init: RequestInit) => {
+      captured.push({ url, init });
+      return new Response(JSON.stringify({ data: { id: 1, filename: 'map.png' }, meta: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+
+    const form = new FormData();
+    form.append('file', new File(['bytes'], 'map.png', { type: 'image/png' }));
+    form.append('kind', 'image');
+
+    const api = createApi(liveFetcher('/api', 'token-abc'));
+    const created = await api.uploadAdventureMedia(42, form);
+
+    const init = captured[0]?.init as RequestInit;
+    expect(captured[0]?.url).toBe('/api/adventures/42/media');
+    expect(init.method).toBe('POST');
+    // The browser has to derive the multipart boundary itself.
+    expect(init.body).toBe(form);
+    expect((init.headers as Record<string, string>)['Content-Type']).toBeUndefined();
+    expect(created.filename).toBe('map.png');
+  });
+
+  it('routes deletes to the item path', async () => {
+    const captured: Array<{ path: string; method: string }> = [];
+    const fetcher: Fetcher = async (path, options = {}) => {
+      captured.push({ path, method: options.method ?? 'GET' });
+      return { deleted: true, id: 7 };
+    };
+    const api = createApi(fetcher);
+    const result = await api.deleteAdventureMedia(42, 7);
+    expect(captured).toEqual([{ path: '/adventures/42/media/7', method: 'DELETE' }]);
+    expect(result).toEqual({ deleted: true, id: 7 });
+  });
 });
 
 describe('withFixtureFallback', () => {

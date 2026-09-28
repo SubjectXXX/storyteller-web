@@ -61,5 +61,11 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     css: false,
+    // Repairs the Node 22+ built-in `localStorage` global, which shadows
+    // happy-dom's and returns undefined without `--localstorage-file`.
+    // Kept separate from the orphaned `src/test/setup.ts`, which imports
+    // `vitest-axe` — a package that is declared but not installed, so
+    // wiring it in would break every suite instead of just the a11y ones.
+    setupFiles: ['./src/test/setup.env.ts'],
   },
 });
