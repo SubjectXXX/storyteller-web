@@ -125,6 +125,7 @@ export {
   type StreamEvent,
   type StreamHandlers,
   type SubmitTurnRequest,
+  type SuggestedChoice,
   type TurnResponse,
   type TurnUsage,
   type TurnUsageEvent,

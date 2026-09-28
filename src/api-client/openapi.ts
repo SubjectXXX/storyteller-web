@@ -443,6 +443,15 @@ export type StreamEvent =
       readonly turn_id: number;
       readonly chunk_index: number;
       readonly narration: string;
+      /**
+       * Whole-turn extras the adventure stream ships alongside the
+       * narration. `GET /api/adventures/{id}/stream` names the turn's
+       * primary key `id` and carries the turn's own `suggested_choices`
+       * plus `sequence_number`, so `parseStreamEvent` normalises `id`
+       * into `turn_id` and passes the rest through when present.
+       */
+      readonly sequence_number?: number;
+      readonly suggested_choices?: ReadonlyArray<SuggestedChoice>;
     }
   | {
       readonly type: 'usage';
@@ -496,6 +505,10 @@ export interface StreamHandlers {
     readonly turnId: number;
     readonly chunkIndex: number;
     readonly narration: string;
+    /** `undefined` on chunk-only payloads. */
+    readonly sequenceNumber?: number;
+    /** The turn's own choices; `undefined` on chunk-only payloads. */
+    readonly suggestedChoices?: ReadonlyArray<SuggestedChoice>;
   }) => void;
   readonly onUsage?: (payload: TurnUsage) => void;
   readonly onEnd?: () => void;
@@ -875,15 +888,26 @@ export function parseStreamEvent(raw: unknown): StreamEvent | null {
   const obj = raw as Record<string, unknown>;
   const type = obj.type;
   if (type === 'turn') {
-    const turnId = Number(obj.turn_id ?? obj.turnId);
+    // `StreamController` names the turn's primary key `id`; the
+    // token-chunk contract uses `turn_id` / `turnId`. Accept all three
+    // so a real adventure stream is parsed instead of dropped.
+    const turnId = Number(obj.turn_id ?? obj.turnId ?? obj.id);
     const chunkIndex = Number(obj.chunk_index ?? obj.chunkIndex ?? 0);
     const narration = typeof obj.narration === 'string' ? obj.narration : '';
     if (!Number.isFinite(turnId)) return null;
+    const sequenceNumber = Number(obj.sequence_number);
+    const suggestedChoices = Array.isArray(obj.suggested_choices)
+      ? (obj.suggested_choices as ReadonlyArray<SuggestedChoice>)
+      : undefined;
     return {
       type: 'turn',
       turn_id: turnId,
       chunk_index: chunkIndex,
       narration,
+      // Only attach the optional fields when the payload actually
+      // carried them, so a chunk-only event keeps its exact shape.
+      ...(Number.isFinite(sequenceNumber) ? { sequence_number: sequenceNumber } : {}),
+      ...(suggestedChoices !== undefined ? { suggested_choices: suggestedChoices } : {}),
     };
   }
   if (type === 'usage') {
@@ -927,6 +951,10 @@ function dispatchStreamEvent(event: StreamEvent, handlers: StreamHandlers): void
       turnId: event.turn_id,
       chunkIndex: event.chunk_index,
       narration: event.narration,
+      ...(event.sequence_number !== undefined ? { sequenceNumber: event.sequence_number } : {}),
+      ...(event.suggested_choices !== undefined
+        ? { suggestedChoices: event.suggested_choices }
+        : {}),
     });
     return;
   }

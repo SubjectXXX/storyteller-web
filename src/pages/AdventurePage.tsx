@@ -21,6 +21,7 @@ import {
   useUpdateAdventureSettings,
 } from '@/hooks/useAdventureSettings';
 import { usePlayerSettings } from '@/hooks/usePlayerSettings';
+import { useScenarioVersion } from '@/hooks/useScenarios';
 import { useBranchTree } from '@/hooks/useBranchTree';
 import { useRetryBranch, useUndoBranch, useRedoBranch } from '@/hooks/useBranchOps';
 import { useCharacter } from '@/hooks/useCharacter';
@@ -51,6 +52,28 @@ const CHOICE_INTENT: Record<string, 'primary' | 'secondary' | 'ghost'> = {
   cautious: 'secondary',
   playful: 'ghost',
 };
+
+/**
+ * `current_branch.state` / `ScenarioVersion.starting_state` are free-form
+ * records on the wire (`App\Http\Resources\AdventureResource`,
+ * `ScenarioController::version`). Read a player-facing label out of one
+ * value, accepting both the object form the seeders write
+ * (`{name: 'Fen Alderwick'}`) and a bare string.
+ */
+function readStateLabel(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() === '' ? null : value;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const name = (value as Record<string, unknown>).name;
+    if (typeof name === 'string' && name.trim() !== '') return name;
+  }
+  return null;
+}
+
+function readStateLabels(value: unknown): ReadonlyArray<string> {
+  if (!Array.isArray(value)) return [];
+  const labels = value.map(readStateLabel);
+  return labels.filter((label): label is string => label !== null);
+}
 
 // `data-testid` exposed to integration / viewport tests so the assertions
 // can target a single canonical element rather than scraping the DOM.
@@ -113,6 +136,16 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   // stable empty array so the child reference does not change on
   // every render.
   const quests = useMemo<ReadonlyArray<Quest>>(() => [], []);
+
+  // The opening `suggested_choices` exist on exactly one endpoint:
+  // `GET /api/scenarios/{slug}/versions/{version}`. `GET /api/adventures/{id}`
+  // carries the branch `state` but no choices, and the turn POST only
+  // answers once the player has already taken a turn. Read straight off
+  // the adventure query so the hook stays unconditional.
+  const scenarioVersionQuery = useScenarioVersion(
+    adventureQuery.data?.scenario_slug,
+    adventureQuery.data?.scenario_version,
+  );
 
   const [freeText, setFreeText] = useState('');
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
@@ -279,19 +312,54 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
   }
 
   const adventure = adventureQuery.data;
-  const choices: ReadonlyArray<SuggestedChoice> = TURN_FIXTURE.suggested_choices;
+  // Choice buttons, in the order the real sources are authoritative:
+  //   1. the latest turn the API streamed (post-play suggestions),
+  //   2. the scenario version's opening choices (pre-play),
+  //   3. the offline fixture, and only when the API gave us neither.
+  const turnChoices = stream.liveSuggestedChoices;
+  const openingChoices = scenarioVersionQuery.data?.suggested_choices ?? [];
+  const hasRealChoices = turnChoices.length > 0 || openingChoices.length > 0;
+  const choices: ReadonlyArray<SuggestedChoice> =
+    turnChoices.length > 0
+      ? turnChoices
+      : openingChoices.length > 0
+        ? openingChoices
+        : TURN_FIXTURE.suggested_choices;
   const isSubmitting = submitTurn.isPending;
   const conflictError =
     submitTurn.error instanceof ApiError && submitTurn.error.status === 409;
 
-  // The live narration from the stream takes precedence over the fixture
-  // we shipped for the offline shell. Once the stream ends without
-  // chunks (e.g. fixture mode without narration) we fall back to the
-  // fixture so the page is never empty.
-  const narration = stream.liveNarration.length > 0 ? stream.liveNarration : TURN_FIXTURE.narration;
+  // Narration comes from the stream. A branch that has not been played
+  // has no turn to narrate yet, so we say so rather than dressing a
+  // fixture beat up as the story; the fixture text is only reached when
+  // the API returned no branch state and no scenario version at all.
+  const hasLiveNarration = stream.liveNarration.length > 0;
+  const stateSource =
+    branchState !== null && Object.keys(branchState).length > 0
+      ? branchState
+      : (scenarioVersionQuery.data?.starting_state ?? null);
+  const hasRealScenarioData = scenarioVersionQuery.data !== undefined || stateSource !== null;
+  const showFixtureNarration = !hasLiveNarration && !hasRealScenarioData;
+  const narration = hasLiveNarration ? stream.liveNarration : TURN_FIXTURE.narration;
   const isStreaming = stream.streaming;
   const streamInterrupted = stream.error !== null && !isStreaming;
-  const liveTurnId = stream.liveTurnId ?? TURN_FIXTURE.id;
+  const sequenceNumber = stream.liveSequenceNumber;
+  const liveTurnId = stream.liveTurnId ?? undefined;
+  // The starting state is a free-form record on the wire, so the
+  // player-facing fields are read defensively (see `readStateLabel`).
+  // Pure derivation off already-rendered values — cheap enough to
+  // recompute per render, same as `previewStyle` below.
+  const startingState = {
+    location: readStateLabel(stateSource?.location),
+    character: readStateLabel(stateSource?.character),
+    // `useInventory` already parsed the structured item shape; the raw
+    // list covers the plain-string form the scenario seeders write.
+    inventory:
+      inventory.items.length > 0
+        ? inventory.items.map((item) => item.name)
+        : readStateLabels(stateSource?.inventory),
+    npcs: readStateLabels(stateSource?.npcs),
+  };
 
   const resolvedMechanicEvent = mechanicEvent;
 
@@ -380,8 +448,15 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
         aria-live="polite"
       >
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
-          <Pill intent="muted" title={`Sequence #${TURN_FIXTURE.sequence_number}`}>
-            Turn #{TURN_FIXTURE.sequence_number}
+          <Pill
+            intent="muted"
+            title={
+              sequenceNumber === null
+                ? 'This branch has no turns yet'
+                : `Sequence #${sequenceNumber}`
+            }
+          >
+            {sequenceNumber === null ? 'No turn yet' : `Turn #${sequenceNumber}`}
           </Pill>
           {isStreaming && (
             <Pill intent="info" title="Live stream is open">
@@ -396,17 +471,26 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
           </Pill>
         </div>
         <div className="prose" style={{ margin: 0, minHeight: '4lh' }}>
-          {isStreaming || stream.liveNarration.length > 0 ? (
+          {isStreaming || hasLiveNarration ? (
             <Typewriter
-              text={narration}
-              key={`turn-${liveTurnId}`}
-              ariaLabel={`Turn ${TURN_FIXTURE.sequence_number} narration`}
+              text={hasLiveNarration ? narration : ''}
+              key={`turn-${liveTurnId ?? 'pending'}`}
+              ariaLabel={sequenceNumber === null ? 'Narration' : `Turn ${sequenceNumber} narration`}
             />
-          ) : (
+          ) : showFixtureNarration ? (
             narration
+          ) : (
+            'No narration yet — this branch has no turns. Pick one of the opening choices or describe what you do.'
           )}
         </div>
         <TokenMeter usage={stream.usage} />
+
+        {(showFixtureNarration || !hasRealChoices) && (
+          <p role="status" data-testid="fixture-fallback" style={noticeStyle}>
+            Offline fixture copy — the API returned no turn narration and no scenario choices for
+            this branch.
+          </p>
+        )}
 
         <div
           aria-label="Suggested choices"
@@ -421,19 +505,81 @@ function AdventureSurface({ adventureId }: { adventureId: number }): ReactElemen
               selectedChoiceId === choice.id
                 ? 'primary'
                 : (CHOICE_INTENT[choice.id.split('-')[1] ?? ''] ?? 'secondary');
+            // The API's choices carry a `description`; Button has no
+            // `title` prop, so the hint rides along as a described-by
+            // caption instead of being dropped.
+            const hintId = `choice-hint-${choice.id}`;
             return (
-              <Button
-                key={choice.id}
-                intent={intent}
-                onClick={() => setSelectedChoiceId(choice.id)}
-                aria-pressed={selectedChoiceId === choice.id}
-              >
-                {choice.label}
-              </Button>
+              <div key={choice.id} style={{ display: 'grid', gap: 'var(--space-1)' }}>
+                <Button
+                  intent={intent}
+                  onClick={() => setSelectedChoiceId(choice.id)}
+                  aria-pressed={selectedChoiceId === choice.id}
+                  aria-describedby={choice.description ? hintId : undefined}
+                >
+                  {choice.label}
+                </Button>
+                {choice.description && (
+                  <span
+                    id={hintId}
+                    style={{ fontSize: 'var(--text-xs)', color: 'var(--color-foreground-muted)' }}
+                  >
+                    {choice.description}
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
       </article>
+
+      {(startingState.location !== null ||
+        startingState.character !== null ||
+        startingState.inventory.length > 0 ||
+        startingState.npcs.length > 0) && (
+        <section
+          aria-label="Starting state"
+          data-testid={ADVENTURE_PAGE_TESTIDS.worldGrid}
+          style={worldGridStyle}
+        >
+          {startingState.location !== null && (
+            <div style={stateCardStyle}>
+              <h2 style={stateHeadingStyle}>Location</h2>
+              <Pill intent="neutral" title={startingState.location}>
+                {startingState.location}
+              </Pill>
+            </div>
+          )}
+          {startingState.character !== null && (
+            <div style={stateCardStyle}>
+              <h2 style={stateHeadingStyle}>You are</h2>
+              <Pill intent="muted" title={startingState.character}>
+                {startingState.character}
+              </Pill>
+            </div>
+          )}
+          {startingState.inventory.length > 0 && (
+            <div style={stateCardStyle}>
+              <h2 style={stateHeadingStyle}>Carrying</h2>
+              <ul style={stateListStyle}>
+                {startingState.inventory.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {startingState.npcs.length > 0 && (
+            <div style={stateCardStyle}>
+              <h2 style={stateHeadingStyle}>People</h2>
+              <ul style={stateListStyle}>
+                {startingState.npcs.map((npc) => (
+                  <li key={npc}>{npc}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
 
       {conflictError && (
         <p role="alert" style={errorPanel}>
@@ -574,6 +720,34 @@ const worldGridStyle: CSSProperties = {
   gap: 'var(--space-4)',
   marginTop: 'var(--space-5)',
   gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+};
+
+const stateCardStyle: CSSProperties = {
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-md)',
+  padding: 'var(--space-3) var(--space-4)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-2)',
+  alignItems: 'flex-start',
+  background: 'var(--color-surface-muted)',
+};
+
+const stateHeadingStyle: CSSProperties = {
+  fontSize: 'var(--text-sm)',
+  fontFamily: 'var(--font-serif)',
+  color: 'var(--color-foreground-muted)',
+  margin: 0,
+};
+
+const stateListStyle: CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 'var(--space-1)',
+  fontSize: 'var(--text-sm)',
 };
 
 const composerStyle: CSSProperties = {

@@ -1,6 +1,7 @@
 export {
   scenarioKeys,
   useScenario,
+  useScenarioVersion,
   useScenarios,
   usePlayTurn,
   useSubmitChoice,

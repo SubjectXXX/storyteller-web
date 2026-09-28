@@ -23,6 +23,34 @@ describe('parseStreamEvent', () => {
     });
   });
 
+  it('parses the adventure stream payload, which names the turn key `id`', () => {
+    // Wire shape of `App\Http\Controllers\Adventures\StreamController::show`:
+    // the turn's primary key is `id`, and the event also carries
+    // `sequence_number` / `suggested_choices`.
+    const event = parseStreamEvent({
+      type: 'turn',
+      id: 42,
+      sequence_number: 3,
+      narration: 'Fen slides the bundle across the desk.',
+      suggested_choices: [
+        { id: 'c1', label: 'Open the undeliverable bundle', description: null },
+      ],
+      state_after: { location: 'Alderwick station house, sorting room' },
+      created_at: '2026-09-28T10:00:00Z',
+      usage: null,
+    });
+    expect(event).toEqual({
+      type: 'turn',
+      turn_id: 42,
+      chunk_index: 0,
+      narration: 'Fen slides the bundle across the desk.',
+      sequence_number: 3,
+      suggested_choices: [
+        { id: 'c1', label: 'Open the undeliverable bundle', description: null },
+      ],
+    });
+  });
+
   it('parses a usage event and keeps the snake_case wire format', () => {
     const event = parseStreamEvent({
       type: 'usage',

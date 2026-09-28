@@ -22,6 +22,7 @@ import {
   type SubmitTurnRequest,
   type TurnResponse,
   type TurnUsage,
+  type SuggestedChoice,
 } from '@/api-client';
 import { useAuth } from '@/auth/useAuth';
 
@@ -130,6 +131,8 @@ export interface AdventureStreamHandlers {
     readonly turnId: number;
     readonly chunkIndex: number;
     readonly narration: string;
+    readonly sequenceNumber?: number;
+    readonly suggestedChoices?: ReadonlyArray<SuggestedChoice>;
   }) => void;
   /** Fires after the API closes the turn with its `usage` event. */
   readonly onUsage?: (usage: TurnUsage) => void;
@@ -165,6 +168,17 @@ export interface AdventureStreamState {
   readonly liveTurnId: number | null;
   /** Monotonic chunk counter (resets per turn). */
   readonly liveChunkIndex: number;
+  /**
+   * `sequence_number` of the most recent turn on the stream, or `null`
+   * until the API emits one. The page renders it as the "Turn #N"
+   * badge so the number is never a fixture constant.
+   */
+  readonly liveSequenceNumber: number | null;
+  /**
+   * `suggested_choices` of the most recent turn on the stream. Empty
+   * until the API emits a turn that carries them.
+   */
+  readonly liveSuggestedChoices: ReadonlyArray<SuggestedChoice>;
   /** True while the SSE connection is open. */
   readonly streaming: boolean;
   /** Populated by the `error` event or a network failure. */
@@ -196,6 +210,10 @@ export function useAdventureStream(
   const [liveNarration, setLiveNarration] = useState<string>('');
   const [liveTurnId, setLiveTurnId] = useState<number | null>(null);
   const [liveChunkIndex, setLiveChunkIndex] = useState<number>(0);
+  const [liveSequenceNumber, setLiveSequenceNumber] = useState<number | null>(null);
+  const [liveSuggestedChoices, setLiveSuggestedChoices] = useState<
+    ReadonlyArray<SuggestedChoice>
+  >([]);
   const [streaming, setStreaming] = useState<boolean>(false);
   const [usage, setUsage] = useState<TurnUsage | null>(null);
   const [error, setError] = useState<{ message: string; code?: string } | null>(null);
@@ -219,6 +237,8 @@ export function useAdventureStream(
     // Reset the buffered state for a fresh subscription.
     setLiveNarration('');
     setLiveChunkIndex(0);
+    setLiveSequenceNumber(null);
+    setLiveSuggestedChoices([]);
     setError(null);
     setStreaming(true);
 
@@ -227,6 +247,12 @@ export function useAdventureStream(
       onTurn: (payload) => {
         setLiveTurnId((prev) => (prev === payload.turnId ? prev : payload.turnId));
         setLiveChunkIndex(payload.chunkIndex);
+        if (payload.sequenceNumber !== undefined) {
+          setLiveSequenceNumber(payload.sequenceNumber);
+        }
+        if (payload.suggestedChoices !== undefined) {
+          setLiveSuggestedChoices(payload.suggestedChoices);
+        }
         setLiveNarration((prev) =>
           prev && payload.chunkIndex === 0 ? payload.narration : prev + payload.narration,
         );
@@ -275,6 +301,8 @@ export function useAdventureStream(
     liveNarration,
     liveTurnId,
     liveChunkIndex,
+    liveSequenceNumber,
+    liveSuggestedChoices,
     streaming,
     error,
     usage,
